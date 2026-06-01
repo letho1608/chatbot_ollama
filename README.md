@@ -5,9 +5,9 @@ Welcome to Phase 3 of the Agentic AI course! This lab focuses on moving from a s
 ## 🚀 Getting Started
 
 ### 1. Setup Environment
-Copy the `.env.example` to `.env` and fill in your API keys:
+Copy the `.env.example` to `.env` and fill in your API keys and model settings:
 ```bash
-cp .env.example .env
+copy .env.example .env
 ```
 
 ### 2. Install Dependencies
@@ -16,7 +16,11 @@ pip install -r requirements.txt
 ```
 
 ### 3. Directory Structure
-- `src/tools/`: Extension point for your custom tools.
+- `src/agent/`: ReAct agent implementation skeleton.
+- `src/core/`: LLM provider abstractions and concrete providers.
+- `src/telemetry/`: Structured logging and metrics for observability.
+- `tests/`: Smoke tests and example local provider test.
+- `logs/`: Generated during runtime by `src.telemetry.logger`.
 
 ## 🏠 Running with Local Models (CPU)
 
@@ -37,13 +41,29 @@ DEFAULT_PROVIDER=local
 LOCAL_MODEL_PATH=./models/Phi-3-mini-4k-instruct-q4.gguf
 ```
 
-## 🎯 Lab Objectives
+## ▶️ Running the Project
+
+To run the agent locally, use the sample runner and the built-in tools:
+
+```bash
+python src/agent/run_agent.py
+```
+
+You can also run the local provider smoke test:
+
+```bash
+python tests/test_local.py
+```
+
+To build the agent, implement `src/agent/agent.py` and instantiate `ReActAgent` with an `LLMProvider` and a tools list.
+
+## 🧠 Lab Objectives
 
 1.  **Baseline Chatbot**: Observe the limitations of a standard LLM when faced with multi-step reasoning.
 2.  **ReAct Loop**: Implement the `Thought-Action-Observation` cycle in `src/agent/agent.py`.
-3.  **Provider Switching**: Swap between OpenAI and Gemini seamlessly using the `LLMProvider` interface.
+3.  **Provider Switching**: Swap between OpenAI, Gemini, and local providers using the `LLMProvider` interface.
 4.  **Failure Analysis**: Use the structured logs in `logs/` to identify why the agent fails (hallucinations, parsing errors).
-5.  **Grading & Bonus**: Follow the [SCORING.md](file:///Users/tindt/personal/ai-thuc-chien/day03-lab-agent/SCORING.md) to maximize your points and explore bonus metrics.
+5.  **Grading & Bonus**: Follow the [SCORING.md](SCORING.md) rubric to maximize your points and explore bonus metrics.
 
 ## 🛠️ How to Use This Baseline
 The code is designed as a **Production Prototype**. It includes:
