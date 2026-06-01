@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Panel — Tysor Security AI</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.admin-app { display: flex; height: 100vh; }
+
+/* Sidebar */
+.admin-sidebar { width: 280px; min-width: 280px; background: var(--sidebar-bg); display: flex; flex-direction: column; border-right: 1px solid var(--border-color); overflow: hidden; }
+.admin-sidebar-brand { padding: 16px 16px 12px; border-bottom: 1px solid var(--border-color); }
+.admin-sidebar-brand .brand-top { display: flex; align-items: center; gap: 10px; }
+.admin-sidebar-brand .brand-icon { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.admin-sidebar-brand .brand-text { line-height: 1.2; }
+.admin-sidebar-brand .brand-title { font-size: 15px; font-weight: 700; color: var(--sidebar-text-hover); }
+.admin-sidebar-brand .brand-sub { font-size: 11px; color: var(--text-muted); letter-spacing: 0.3px; }
+
+.admin-nav { flex: 1; padding: 8px; overflow-y: auto; }
+.admin-nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-bottom: 2px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--sidebar-text); transition: all 0.12s; border: none; background: none; width: 100%; text-align: left; font-family: inherit; }
+.admin-nav-item:hover { background: var(--sidebar-hover); color: var(--sidebar-text-hover); }
+.admin-nav-item.active { background: var(--accent); color: #fff; font-weight: 500; }
+.admin-nav-item .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+.admin-nav-item .nav-tag { margin-left: auto; font-size: 10px; padding: 1px 7px; border-radius: 20px; background: var(--sidebar-hover); color: var(--text-muted); }
+.admin-nav-item.active .nav-tag { background: rgba(255,255,255,0.2); color: #fff; }
+
+.admin-sidebar-user { border-top: 1px solid var(--border-color); padding: 10px 12px; display: flex; align-items: center; gap: 10px; }
+.admin-sidebar-user .user-avatar { width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.admin-sidebar-user .user-meta { flex: 1; min-width: 0; }
+.admin-sidebar-user .user-name { font-size: 13px; font-weight: 500; color: var(--sidebar-text-hover); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.admin-sidebar-user .user-role { font-size: 11px; color: var(--accent); font-weight: 500; }
+.admin-logout-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 6px; border-radius: 6px; display: flex; transition: all 0.12s; }
+.admin-logout-btn:hover { color: var(--danger); background: rgba(239,83,80,0.1); }
+
+/* Main */
+.admin-main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--main-bg); }
+.admin-topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 24px; height: 56px; flex-shrink: 0; border-bottom: 1px solid var(--border-color); background: var(--sidebar-bg); }
+.admin-topbar-left { display: flex; align-items: center; gap: 12px; }
+.admin-topbar-left h1 { font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.admin-topbar-breadcrumb { font-size: 12px; color: var(--text-muted); }
+.admin-topbar-right { display: flex; align-items: center; gap: 10px; }
+.admin-topbar-right .username { font-size: 12px; color: var(--text-secondary); }
+.btn-back-chat { padding: 6px 14px; background: var(--user-bubble); color: var(--text-primary); border-radius: 6px; text-decoration: none; font-size: 12px; font-weight: 500; transition: background 0.12s; white-space: nowrap; }
+.btn-back-chat:hover { background: var(--border-color); }
+
+.admin-content { flex: 1; overflow-y: auto; padding: 24px; }
+.admin-content-inner { max-width: 1100px; }
+.admin-section-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.5; }
+
+/* Cards */
+.admin-card { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; }
+.admin-card-header { padding: 14px 18px; border-bottom: 1px solid var(--border-color); font-size: 13px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+.admin-card-header .card-icon { width: 18px; text-align: center; font-size: 15px; }
+
+/* Stats */
+.admin-stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-bottom: 24px; }
+.admin-stat-card { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 16px; transition: border-color 0.15s, transform 0.15s; }
+.admin-stat-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.admin-stat-card .stat-row { display: flex; align-items: flex-start; justify-content: space-between; }
+.admin-stat-card .stat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+.admin-stat-card .stat-icon.c1 { background: rgba(34,197,94,0.12); }
+.admin-stat-card .stat-icon.c2 { background: rgba(59,130,246,0.12); }
+.admin-stat-card .stat-icon.c3 { background: rgba(168,85,247,0.12); }
+.admin-stat-card .stat-icon.c4 { background: rgba(245,158,11,0.12); }
+.admin-stat-card .stat-icon.c5 { background: rgba(236,72,153,0.12); }
+.admin-stat-card .stat-icon.c6 { background: rgba(6,182,212,0.12); }
+.admin-stat-card .stat-val { font-size: 30px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+.admin-stat-card .stat-lbl { font-size: 12px; color: var(--text-secondary); margin-top: 6px; font-weight: 500; }
+.admin-stat-card .stat-sub { font-size: 11px; margin-top: 6px; padding: 2px 8px; border-radius: 20px; display: inline-block; }
+
+/* Tables */
+.admin-table-wrap { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table thead th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); background: var(--main-bg); white-space: nowrap; }
+.admin-table tbody tr { border-bottom: 1px solid var(--border-color); transition: background 0.1s; }
+.admin-table tbody tr:last-child { border-bottom: none; }
+.admin-table tbody tr:hover { background: var(--sidebar-hover); }
+.admin-table tbody td { padding: 10px 14px; vertical-align: middle; color: var(--text-primary); }
+.admin-table .cell-name { font-weight: 500; white-space: nowrap; }
+.admin-table .cell-mono { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+.admin-table .cell-sm { font-size: 12px; color: var(--text-secondary); }
+
+/* Badges */
+.role-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+.role-badge.admin { background: rgba(16,163,127,0.12); color: var(--accent); }
+.role-badge.user { background: var(--sidebar-hover); color: var(--text-secondary); }
+.status-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.status-dot::before { content: ''; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.online::before { background: #22c55e; }
+.status-dot.offline::before { background: var(--text-muted); }
+.status-dot.active::before { background: #22c55e; }
+.status-dot.inactive::before { background: var(--text-muted); }
+
+.action-btn { background: none; border: none; cursor: pointer; padding: 5px 8px; border-radius: 6px; font-size: 13px; color: var(--text-muted); transition: all 0.12s; display: inline-flex; align-items: center; gap: 4px; }
+.action-btn:hover { background: var(--sidebar-hover); color: var(--text-primary); }
+.action-btn.danger:hover { color: var(--danger); background: rgba(239,83,80,0.1); }
+.action-btn.success:hover { color: #22c55e; background: rgba(34,197,94,0.1); }
+.action-btn .btn-label { font-size: 11px; }
+
+/* Model pull */
+.model-pull-area { display: flex; gap: 8px; margin-bottom: 14px; }
+.model-pull-area input { flex: 1; padding: 9px 14px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; color: var(--text-primary); font-size: 13px; outline: none; }
+.model-pull-area input:focus { border-color: var(--accent); }
+.model-pull-area input::placeholder { color: var(--text-muted); }
+.btn-pull-model { padding: 9px 20px; background: var(--accent); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; transition: background 0.12s; }
+.btn-pull-model:hover { background: var(--accent-hover); }
+.btn-pull-model:disabled { opacity: 0.5; cursor: not-allowed; }
+.model-pull-status { font-size: 12px; margin-bottom: 12px; min-height: 18px; color: var(--text-secondary); }
+.model-pull-status.pulling { color: var(--accent); }
+.model-pull-status.success { color: #22c55e; }
+.model-pull-status.error { color: #ef4444; }
+.pull-progress-bar { height: 3px; border-radius: 2px; background: var(--border-color); margin-bottom: 12px; overflow: hidden; display: none; }
+.pull-progress-bar .fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s ease; }
+.size-badge { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+
+/* Search inputs */
+.search-input { padding: 6px 12px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 8px; color: var(--text-primary); font-size: 12px; outline: none; }
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--text-muted); }
+.search-input option { background: var(--main-bg); color: var(--text-primary); }
+.badge-count { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--text-muted); }
+
+/* Catalog suggestions */
+.catalog-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: var(--main-bg); border: 1px solid var(--border-color); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 100; margin-top: 2px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.catalog-suggestions .cs-item { display: flex; align-items: center; gap: 8px; padding: 8px 14px; cursor: pointer; font-size: 13px; color: var(--text-primary); transition: background 0.1s; }
+.catalog-suggestions .cs-item:hover { background: var(--sidebar-hover); }
+.catalog-suggestions .cs-item .cs-cat { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+.catalog-suggestions .cs-item .cs-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* Event badges */
+.event-badge { font-size: 11px; padding: 2px 10px; border-radius: 20px; font-weight: 500; display: inline-block; }
+.event-badge.login { background: rgba(59,130,246,0.1); color: #3b82f6; }
+.event-badge.register { background: rgba(34,197,94,0.1); color: #22c55e; }
+.event-badge.logout { background: var(--sidebar-hover); color: var(--text-secondary); }
+.event-badge.chat { background: rgba(168,85,247,0.1); color: #a855f7; }
+.event-badge.admin { background: rgba(245,158,11,0.1); color: #f59e0b; }
+.event-badge.login_failed { background: rgba(239,83,80,0.1); color: #ef4444; }
+.event-badge.chat_message { background: rgba(16,163,127,0.1); color: var(--accent); }
+
+/* Activity feed */
+.activity-feed { padding: 8px 0; }
+.activity-item { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border-color); transition: background 0.1s; }
+.activity-item:last-child { border-bottom: none; }
+.activity-item:hover { background: var(--sidebar-hover); }
+.activity-item .ai-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.activity-item .ai-dot.event { background: var(--accent); }
+.activity-item .ai-dot.message { background: #a855f7; }
+.activity-item .ai-body { flex: 1; min-width: 0; }
+.activity-item .ai-header { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.activity-item .ai-username { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.activity-item .ai-event { font-size: 11px; }
+.activity-item .ai-detail { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-item .ai-time { font-size: 11px; color: var(--text-muted); flex-shrink: 0; white-space: nowrap; }
+
+/* Top users */
+.top-users-grid { display: grid; gap: 6px; padding: 6px 0; }
+.top-user-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; transition: background 0.1s; cursor: pointer; }
+.top-user-item:hover { background: var(--sidebar-hover); }
+.top-user-item .tu-rank { width: 20px; text-align: center; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.top-user-item .tu-rank.gold { color: #f59e0b; }
+.top-user-item .tu-rank.silver { color: #94a3b8; }
+.top-user-item .tu-rank.bronze { color: #cd7f32; }
+.top-user-item .tu-avatar { width: 28px; height: 28px; border-radius: 8px; background: var(--sidebar-hover); display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-primary); flex-shrink: 0; font-weight: 600; }
+.top-user-item .tu-name { flex: 1; font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.top-user-item .tu-msgs { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+.top-user-item .tu-bar { width: 60px; height: 4px; border-radius: 2px; background: var(--border-color); overflow: hidden; }
+.top-user-item .tu-bar .fill { height: 100%; border-radius: 2px; background: var(--accent); }
+
+/* Message chart */
+.msg-chart { display: flex; align-items: flex-end; gap: 4px; height: 60px; padding: 6px 0; }
+.msg-chart .bar { flex: 1; border-radius: 3px 3px 0 0; min-height: 4px; transition: height 0.3s; background: var(--accent); opacity: 0.7; }
+.msg-chart .bar:hover { opacity: 1; }
+
+/* Dashboard row */
+.dash-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.dash-panel { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; }
+.dash-panel h3 { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.dash-panel .panel-sub { font-size: 11px; color: var(--text-muted); margin-left: auto; font-weight: 400; }
+
+/* User detail modal */
+.user-modal-overlay { position: fixed; inset: 0; z-index: 300; display: flex; align-items: flex-start; justify-content: center; padding-top: 40px; }
+.user-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+.user-modal { position: relative; background: var(--main-bg); border: 1px solid var(--border-color); border-radius: 14px; width: 95%; max-width: 800px; max-height: 85vh; box-shadow: 0 20px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column; overflow: hidden; }
+.user-modal-header { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--border-color); }
+.user-modal-header .um-avatar { width: 40px; height: 40px; border-radius: 10px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600; }
+.user-modal-header .um-info { flex: 1; }
+.user-modal-header .um-name { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.user-modal-header .um-meta { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.user-modal-close { width: 32px; height: 32px; border: none; background: none; color: var(--text-muted); font-size: 20px; cursor: pointer; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.12s; }
+.user-modal-close:hover { background: var(--sidebar-hover); color: var(--text-primary); }
+.user-modal-body { padding: 16px 20px; overflow-y: auto; }
+.user-modal-tabs { display: flex; gap: 2px; margin-bottom: 14px; }
+.user-modal-tab { padding: 7px 16px; border: none; background: none; color: var(--text-secondary); cursor: pointer; font-size: 13px; font-weight: 500; border-radius: 6px; transition: all 0.12s; }
+.user-modal-tab:hover { background: var(--sidebar-hover); color: var(--text-primary); }
+.user-modal-tab.active { background: var(--sidebar-active); color: var(--text-primary); }
+
+/* Conversation preview */
+.conv-preview { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
+
+/* System grid */
+.admin-sys-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.admin-sys-card { background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 18px; }
+.admin-sys-card.full { grid-column: 1 / -1; }
+.admin-sys-card h3 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
+.admin-sys-card h3 .sys-card-icon { font-size: 14px; }
+.admin-sys-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 13px; border-bottom: 1px solid var(--border-color); }
+.admin-sys-row:last-child { border-bottom: none; }
+.admin-sys-row .sys-label { color: var(--text-secondary); }
+.admin-sys-row .sys-value { color: var(--text-primary); font-weight: 500; }
+.admin-sys-row .sys-value.ok { color: #22c55e; }
+.admin-sys-row .sys-value.err { color: #ef4444; }
+.admin-sys-row .sys-value.warn { color: #f59e0b; }
+.admin-sys-progress { height: 4px; border-radius: 2px; background: var(--border-color); margin: 6px 0 2px; overflow: hidden; }
+.admin-sys-progress .fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+
+.admin-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px; }
+.admin-empty .empty-icon { font-size: 32px; margin-bottom: 8px; }
+.admin-empty .empty-text { font-size: 13px; }
+.admin-empty .empty-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+@media (max-width: 900px) {
+  .admin-sidebar { width: 220px; min-width: 220px; }
+  .admin-stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .dash-row { grid-template-columns: 1fr; }
+  .admin-sys-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .admin-app { flex-direction: column; }
+  .admin-sidebar { width: 100%; min-width: 100%; height: auto; max-height: 48px; overflow: hidden; flex-direction: row; padding: 0; }
+  .admin-sidebar:hover, .admin-sidebar:focus-within { max-height: 100vh; overflow-y: auto; }
+  .admin-sidebar-brand { padding: 10px 12px; border-bottom: none; }
+  .admin-sidebar-brand .brand-top { gap: 6px; }
+  .admin-sidebar-brand .brand-title { font-size: 13px; }
+  .admin-sidebar-brand .brand-sub { display: none; }
+  .admin-nav { display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 8px; }
+  .admin-nav-item { font-size: 11px; padding: 6px 8px; flex: 1 0 auto; min-width: 0; }
+  .admin-nav-item .nav-icon { font-size: 13px; width: 16px; }
+  .admin-nav-item .nav-tag { display: none; }
+  .admin-sidebar-user { display: none; }
+  .admin-main { min-height: 0; }
+  .admin-topbar { padding: 0 12px; height: 44px; }
+  .admin-topbar-left h1 { font-size: 14px; }
+  .admin-topbar-breadcrumb { display: none; }
+  .admin-content { padding: 12px; }
+  .admin-stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .admin-stat-card { padding: 12px; }
+  .admin-stat-card .stat-val { font-size: 22px; }
+  .admin-table-wrap { margin: 0 -12px; }
+  .admin-table { font-size: 12px; }
+  .admin-table thead th { font-size: 10px; padding: 6px 8px; }
+  .admin-table tbody td { padding: 6px 8px; }
+  .admin-card-header { flex-wrap: wrap; gap: 4px; }
+  .admin-card-header .badge-count { display: none; }
+  .search-input { width: 100px !important; font-size: 11px !important; }
+  .model-pull-area { flex-direction: column; }
+  .dash-row { grid-template-columns: 1fr; gap: 10px; }
+  .admin-sys-grid { grid-template-columns: 1fr; }
+  .user-modal { width: 100%; max-width: 100%; margin: 0; border-radius: 12px 12px 0 0; max-height: 90vh; top: auto; bottom: 0; position: fixed; }
+  .user-modal-overlay { align-items: flex-end; padding: 0; }
+  .conv-preview { max-width: 80px; }
+  .admin-section-desc { font-size: 12px; margin-bottom: 12px; }
+}
+@media (max-width: 480px) {
+  .admin-stats-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .admin-stat-card { padding: 10px; }
+  .admin-stat-card .stat-val { font-size: 18px; }
+  .admin-table .cell-name { font-size: 11px; }
+  .admin-table .cell-mono { font-size: 10px; }
+  .admin-table .cell-sm { font-size: 10px; }
+  .admin-nav-item { font-size: 10px; padding: 4px 6px; }
+}
+</style>
+</head>
+<body>
+<div class="admin-app">
+  <!-- Sidebar -->
+  <aside class="admin-sidebar">
+    <div class="admin-sidebar-brand">
+      <div class="brand-top">
+        <div class="brand-icon">🛡</div>
+        <div class="brand-text">
+          <div class="brand-title">Tysor Admin</div>
+          <div class="brand-sub">Security Control Panel</div>
+        </div>
+      </div>
+    </div>
+    <nav class="admin-nav">
+      <button class="admin-nav-item active" data-section="dashboard">
+        <span class="nav-icon">📊</span> Dashboard
+      </button>
+      <button class="admin-nav-item" data-section="activity">
+        <span class="nav-icon">📡</span> Activity
+      </button>
+      <button class="admin-nav-item" data-section="users">
+        <span class="nav-icon">👥</span> Users
+        <span class="nav-tag" id="navUsersCount">0</span>
+      </button>
+      <button class="admin-nav-item" data-section="models">
+        <span class="nav-icon">🤖</span> Models
+        <span class="nav-tag" id="navModelsCount">0</span>
+      </button>
+      <button class="admin-nav-item" data-section="conversations">
+        <span class="nav-icon">💬</span> Conversations
+        <span class="nav-tag" id="navConvsCount">0</span>
+      </button>
+      <button class="admin-nav-item" data-section="audit">
+        <span class="nav-icon">🔍</span> Audit Logs
+      </button>
+      <button class="admin-nav-item" data-section="system">
+        <span class="nav-icon">🔧</span> System
+      </button>
+    </nav>
+    <div class="admin-sidebar-user">
+      <div class="user-avatar" id="adminSidebarAvatar">A</div>
+      <div class="user-meta">
+        <div class="user-name" id="adminSidebarName">Admin</div>
+        <div class="user-role">Administrator</div>
+      </div>
+      <button class="admin-logout-btn" id="adminLogoutBtn" title="Logout">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="admin-main">
+    <div class="admin-topbar">
+      <div class="admin-topbar-left">
+        <span class="admin-topbar-breadcrumb">Admin</span>
+        <h1 id="adminSectionTitle">Dashboard</h1>
+      </div>
+      <div class="admin-topbar-right">
+        <span class="username" id="adminTopbarName">admin</span>
+        <a href="/chat" class="btn-back-chat">← Back to Chat</a>
+      </div>
+    </div>
+
+    <div class="admin-content">
+      <div class="admin-content-inner">
+
+        <!-- ==================== DASHBOARD ==================== -->
+        <div class="admin-section-content" id="section-dashboard">
+          <div class="admin-section-desc">Real-time overview — monitor users, conversations, and system-wide activity at a glance.</div>
+          <div class="admin-stats-grid" id="adminQuickStats"></div>
+          <div class="dash-row">
+            <div class="dash-panel">
+              <h3><span>📡</span> Live Activity Feed <span class="panel-sub" id="dashActivityCount">—</span></h3>
+              <div id="dashActivityFeed"><div class="admin-empty" style="padding:20px">Loading...</div></div>
+            </div>
+            <div class="dash-panel">
+              <h3><span>🏆</span> Top Active Users <span class="panel-sub" id="dashTopUsersCount">—</span></h3>
+              <div id="dashTopUsers"><div class="admin-empty" style="padding:20px">Loading...</div></div>
+            </div>
+          </div>
+          <div class="dash-row" style="grid-template-columns:1fr">
+            <div class="dash-panel">
+              <h3><span>📈</span> Messages Activity <span class="panel-sub">last 7 days</span></h3>
+              <div id="dashMsgChart" style="height:80px;display:flex;align-items:flex-end;gap:6px;padding:8px 0"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== ACTIVITY TAB ==================== -->
+        <div class="admin-section-content" id="section-activity" style="display:none">
+          <div class="admin-section-desc">System-wide activity feed — every event and message across all users in real time.</div>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <span class="card-icon">📡</span> Activity Feed
+              <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--text-muted)" id="activityTotalLabel">loading...</span>
+            </div>
+            <div id="adminActivityList"><div class="admin-empty" style="padding:30px">Loading...</div></div>
+          </div>
+        </div>
+
+        <!-- ==================== USERS ==================== -->
+        <div class="admin-section-content" id="section-users" style="display:none">
+          <div class="admin-section-desc">All registered users. Click a row to view detailed activity and conversations.</div>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <span class="card-icon">👥</span> Registered Users
+              <span class="badge-count" id="usersCountBadge">0</span>
+            </div>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Chats</th>
+                    <th>Last Active</th>
+                    <th>Joined</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="adminUserList"><tr><td colspan="8" class="admin-empty">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== MODELS ==================== -->
+        <div class="admin-section-content" id="section-models" style="display:none">
+          <div class="admin-section-desc">Pull new models from Ollama, browse the catalog, and manage installed models.</div>
+          <div class="admin-card" style="margin-bottom:16px">
+            <div class="admin-card-header"><span class="card-icon">📥</span> Pull Model <span style="margin-left:auto;font-weight:400;font-size:11px;color:var(--text-muted)">Type a model name to pull from Ollama</span></div>
+            <div style="padding:14px 18px">
+              <div class="model-pull-area">
+                <div style="flex:1;position:relative">
+                  <input type="text" id="adminModelInput" placeholder="Type model name (e.g. llama3.2:3b)..." autocomplete="off" style="width:100%">
+                  <div id="adminModelSuggest" class="catalog-suggestions" style="display:none"></div>
+                </div>
+                <button class="btn-pull-model" id="adminModelPullBtn">Pull</button>
+              </div>
+              <div class="pull-progress-bar" id="pullProgressBar"><div class="fill" id="pullProgressFill"></div></div>
+              <div class="model-pull-status" id="adminModelStatus"></div>
+            </div>
+          </div>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <span class="card-icon">📦</span> Installed Models
+              <span class="badge-count" id="modelsCountBadge">0</span>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <input type="text" id="adminModelFilter" placeholder="Filter models..." class="search-input" style="width:160px">
+              </div>
+            </div>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th style="width:30%">Model</th>
+                    <th style="width:12%">Category</th>
+                    <th>Description</th>
+                    <th style="width:10%">Size</th>
+                    <th style="width:12%">Modified</th>
+                    <th style="width:8%">Digest</th>
+                    <th style="width:6%"></th>
+                  </tr>
+                </thead>
+                <tbody id="adminModelList"><tr><td colspan="7" class="admin-empty">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== CONVERSATIONS ==================== -->
+        <div class="admin-section-content" id="section-conversations" style="display:none">
+          <div class="admin-section-desc">Browse all conversations across all users. Click a row to view in chat.</div>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <span class="card-icon">💬</span> Conversations
+              <span class="badge-count" id="convsCountBadge">0</span>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <input type="text" id="adminConvSearch" placeholder="Search by title..." class="search-input" style="width:180px">
+                <button class="btn-pull-model" id="adminConvRefreshBtn" style="padding:5px 12px;font-size:11px">⟳</button>
+              </div>
+            </div>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th style="width:28%">Title</th>
+                    <th style="width:12%">User</th>
+                    <th style="width:6%">Msgs</th>
+                    <th>Last Message</th>
+                    <th style="width:12%">Created</th>
+                    <th style="width:12%">Updated</th>
+                  </tr>
+                </thead>
+                <tbody id="adminConvList"><tr><td colspan="6" class="admin-empty">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== AUDIT ==================== -->
+        <div class="admin-section-content" id="section-audit" style="display:none">
+          <div class="admin-section-desc">Security audit trail — every significant event across the system.</div>
+          <div class="admin-card">
+            <div class="admin-card-header">
+              <span class="card-icon">🔍</span> Audit Log
+              <span class="badge-count" id="auditCountBadge">0</span>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <select id="auditEventFilter" class="search-input" style="width:140px">
+                  <option value="">All Events</option>
+                  <option value="login">Login</option>
+                  <option value="login_failed">Login Failed</option>
+                  <option value="register">Register</option>
+                  <option value="logout">Logout</option>
+                  <option value="chat">Chat</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <input type="text" id="auditUserSearch" placeholder="Filter by user..." class="search-input" style="width:150px">
+              </div>
+            </div>
+            <div class="admin-table-wrap">
+              <table class="admin-table">
+                <thead>
+                  <tr>
+                    <th style="width:14%">Event</th>
+                    <th>Detail</th>
+                    <th style="width:12%">User</th>
+                    <th style="width:12%">IP</th>
+                    <th style="width:14%">When</th>
+                  </tr>
+                </thead>
+                <tbody id="adminAuditList"><tr><td colspan="5" class="admin-empty">Loading...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==================== SYSTEM ==================== -->
+        <div class="admin-section-content" id="section-system" style="display:none">
+          <div class="admin-section-desc">System health — server resources, Ollama status, process information, and public tunnel.</div>
+          <div class="admin-sys-grid" id="adminSysInfo"></div>
+          <div class="admin-card" style="margin-top:16px">
+            <div class="admin-card-header"><span class="card-icon">🌐</span> Cloudflare Tunnel <span style="margin-left:auto;font-weight:400;font-size:11px;color:var(--text-muted)">Expose to internet via trycloudflare.com</span></div>
+            <div style="padding:14px 18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <button class="btn-pull-model" id="tunnelStartBtn" style="font-size:12px">▶ Start Tunnel</button>
+              <button class="btn-pull-model" id="tunnelStopBtn" style="font-size:12px;background:var(--danger)" disabled>■ Stop</button>
+              <span id="tunnelStatus" style="font-size:12px;color:var(--text-muted)">Not running</span>
+              <span id="tunnelUrl" style="font-size:12px;font-family:var(--font-mono);color:var(--accent);word-break:break-all"></span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- User Detail Modal -->
+<div id="userModal" class="user-modal-overlay" style="display:none">
+  <div class="user-modal-backdrop" onclick="closeUserModal()"></div>
+  <div class="user-modal">
+    <div class="user-modal-header">
+      <div class="um-avatar" id="umAvatar">?</div>
+      <div class="um-info">
+        <div class="um-name" id="umName">—</div>
+        <div class="um-meta" id="umMeta">—</div>
+      </div>
+      <button class="user-modal-close" onclick="closeUserModal()">✕</button>
+    </div>
+    <div class="user-modal-body">
+      <div class="user-modal-tabs">
+        <button class="user-modal-tab active" data-umtab="activity">Activity Log</button>
+        <button class="user-modal-tab" data-umtab="conversations">Conversations</button>
+      </div>
+      <div id="umActivityTab"><div class="admin-empty">Loading...</div></div>
+      <div id="umConversationsTab" style="display:none"><div class="admin-empty">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>
