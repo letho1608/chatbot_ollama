@@ -135,7 +135,15 @@ class AgentOrchestrator:
 
         return list(reversed(selected))
 
-    def process_response(self, ctx: AgentContext, response_text: str, db: Session, ip: str = ""):
+    def process_response(
+        self,
+        ctx: AgentContext,
+        response_text: str,
+        db: Session,
+        ip: str = "",
+        max_tokens: Optional[int] = None,
+        truncated: bool = False,
+    ):
         elapsed_ms = int((time.time() - ctx.start_time) * 1000)
 
         if self.config.output_validation_enabled:
@@ -160,8 +168,12 @@ class AgentOrchestrator:
 
         if self.config.audit_enabled:
             logger.log_chat(
-                ctx.user_id, ctx.query, response_text[:500], ctx.model, elapsed_ms, db, ip,
+                ctx.user_id, ctx.query, response_text, ctx.model, elapsed_ms, db, ip,
                 safety_flagged=bool(ctx.safety_result and ctx.safety_result.pii_found),
+                max_tokens=max_tokens,
+                truncated=truncated,
+                username=ctx.username,
+                conversation_id=ctx.conversation_id,
             )
 
     def should_plan(self, query: str) -> bool:
