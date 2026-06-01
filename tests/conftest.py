@@ -11,6 +11,7 @@ from core.database import Base, get_db, User, Conversation, Message
 from core.auth import hash_password, create_access_token
 
 TEST_DB_URL = "sqlite:///./data/test.db"
+os.makedirs("data", exist_ok=True)
 engine = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
 TestSession = sessionmaker(bind=engine, autoflush=False)
 
