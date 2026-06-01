@@ -59,7 +59,15 @@ D:\Code\ai\chabot_ollama\
 ```
 
 ---
+## Lab Submission Templates
 
+- `report/SCORING.md` — Lab 3 scoring rubric and feature checklist.
+- `report/group_report/TEMPLATE_GROUP_REPORT.md` — Group report template.
+- `report/individual_reports/TEMPLATE_INDIVIDUAL_REPORT.md` — Individual report template.
+- `EVALUATION.md` — Lab 3 evaluation metrics and log interpretation.
+- `scripts/parse_evaluation_metrics.py` — Script to aggregate prompt/chat metrics from logs.
+
+---
 ## Installation
 
 ### Prerequisites
