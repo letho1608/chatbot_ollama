@@ -26,8 +26,10 @@ def start_tunnel(port: int = 8000) -> str:
         global _tunnel_url
         for line in iter(_tunnel_process.stdout.readline, ""):
             if "trycloudflare.com" in line:
-                idx = line.index("https://")
-                end = line.index(".trycloudflare.com") + len(".trycloudflare.com")
+                idx = line.find("https://")
+                if idx == -1:
+                    continue
+                end = line.find(".trycloudflare.com", idx) + len(".trycloudflare.com")
                 _tunnel_url = line[idx:end]
                 break
 

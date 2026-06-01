@@ -9,7 +9,7 @@ from typing import List, Tuple, Optional
 import httpx
 from sqlalchemy.orm import Session
 
-from database import Document, DocumentChunk
+from core.database import Document, DocumentChunk
 from core.config import SECURITY_KEYWORDS
 
 OLLAMA_BASE = "http://127.0.0.1:11434"

@@ -130,30 +130,30 @@ sequenceDiagram
   <h2><span class="num">4</span> RAG Document Flow</h2>
   <div class="mermaid">
 flowchart LR
-    subgraph UPLOAD["Upload Flow 📤"]
+    subgraph UPLOAD["Upload Flow"]
         direction TB
         U1["User"] --> B1["Browser"]
         B1 -->|POST /api/rag/upload| F1["FastAPI"]
-        F1 --> C1{"Extension\nallowed?"}
+        F1 --> C1{"Extension allowed?"}
         C1 -->|No| E1["Return error"]
-        C1 -->|Yes| E2["Extract text\n.txt→utf-8\n.docx→python-docx\n.pdf→pypdf"]
-        E2 --> C2{"Security\ncontent?"}
+        C1 -->|Yes| E2["Extract text (.txt .docx .pdf)"]
+        E2 --> C2{"Security content?"}
         C2 -->|No| E3["Reject"]
-        C2 -->|Yes| E4["Chunk text\n500 words, 80 overlap"]
-        E4 --> E5["Get embeddings\n/api/embeddings"]
+        C2 -->|Yes| E4["Chunk text (500 words, 80 overlap)"]
+        E4 --> E5["Get embeddings /api/embeddings"]
         E5 --> OL["Ollama"]
         OL -->|vector| E5
-        E5 --> E6["Store in\nsession_store"]
+        E5 --> E6["Store in session_store"]
         E6 --> OK1["{ok, id, filename}"]
         OK1 --> B1
         B1 --> U1
     end
-    subgraph QUERY["Query Flow 💬"]
+    subgraph QUERY["Query Flow"]
         direction TB
         U2["User"] --> B2["Browser"]
         B2 -->|POST /api/chat/stream| F2["FastAPI"]
-        F2 --> R1["session_retrieve()\nquery emb → cos sim → top-K"]
-        R1 --> R2["Inject context\ninto prompt:\n'Relevant context:\n<chunk_text>'"]
+        F2 --> R1["session_retrieve() (query emb → cos sim → top-K)"]
+        R1 --> R2["Inject context into prompt"]
         R2 --> F2
         F2 --> B2
         B2 --> U2
