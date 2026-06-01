@@ -3,8 +3,10 @@ import subprocess
 import sys
 import json
 import urllib.request
-import shutil
 import urllib.error
+import shutil
+import zipfile
+import io
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REQUIRED_MODELS = ["minimax-m3:cloud", "nomic-embed-text:latest"]
@@ -81,8 +83,46 @@ def check_cloudflared():
     if cf:
         log(f"cloudflared found at {cf}", "OK")
         return True
-    log("cloudflared not found. Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/", "FAIL")
-    log("Or use winget: winget install Cloudflare.Cloudflared", "INFO")
+
+    log("cloudflared not found, attempting auto-install...", "INFO")
+
+    # Attempt 1: winget
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["winget", "install", "Cloudflare.Cloudflared", "--accept-package-agreements"],
+                check=True, capture_output=True, timeout=120
+            )
+            if shutil.which("cloudflared"):
+                log("cloudflared installed via winget", "OK")
+                return True
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+    # Attempt 2: direct download
+    log("Downloading cloudflared binary...", "INFO")
+    try:
+        if sys.platform == "win32":
+            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+            dest = os.path.join(BASE_DIR, "cloudflared.exe")
+            urllib.request.urlretrieve(url, dest)
+            log(f"Downloaded cloudflared to {dest}", "OK")
+            return True
+        elif sys.platform == "linux":
+            url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+            dest = "/usr/local/bin/cloudflared"
+            urllib.request.urlretrieve(url, dest)
+            os.chmod(dest, 0o755)
+            log("cloudflared installed to /usr/local/bin", "OK")
+            return True
+        elif sys.platform == "darwin":
+            subprocess.run(["brew", "install", "cloudflared"], check=True, capture_output=True, timeout=120)
+            log("cloudflared installed via brew", "OK")
+            return True
+    except Exception as e:
+        log(f"Auto-install failed: {e}", "FAIL")
+        log("Install manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/", "INFO")
+
     return False
 
 
