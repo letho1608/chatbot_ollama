@@ -359,7 +359,7 @@ function appendMessage(role, content, animated = true) {
   const div = document.createElement('div');
   div.className = `message ${role}`;
   const avatar = role === 'user' ? '🧑' : '🤖';
-  const contentHtml = role === 'assistant' ? renderMarkdown(content) : escapeHtml(content);
+  const contentHtml = role === 'assistant' ? renderAssistantMessage(content) : escapeHtml(content);
   div.innerHTML = `
     <div class="avatar">${avatar}</div>
     <div class="msg-body">
@@ -395,7 +395,7 @@ function updateLastMessage(content) {
   if (last && last.classList.contains('assistant')) {
     const bubble = last.querySelector('.msg-content');
     if (bubble) {
-      bubble.innerHTML = renderMarkdown(content);
+      bubble.innerHTML = renderAssistantMessage(content);
       el.messages.scrollTop = el.messages.scrollHeight;
     }
   }
@@ -633,6 +633,101 @@ function getPlainText(md) {
     return match.replace(/```\w*\n?/, '').replace(/```$/, '');
   });
   return cleaned.replace(/[*_~`#\[\]()>|]/g, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function renderAssistantMessage(text) {
+  if (!text) return '';
+  const parsed = parseTraceBlocks(text);
+  const traceHtml = parsed.trace.length ? renderTraceBlocks(parsed.trace) : '';
+  const answerHtml = parsed.answer.trim() ? renderMarkdown(parsed.answer.trim()) : '';
+  return traceHtml + answerHtml;
+}
+
+function parseTraceBlocks(text) {
+  const trace = [];
+  let working = text;
+
+  working = working.replace(/<think>([\s\S]*?)(?:<\/think>|$)/gi, (_, content) => {
+    const body = content.trim();
+    if (body) trace.push({ kind: 'thought', number: '', body });
+    return '';
+  });
+
+  const labelRe = /(^|\n)[ \t]*(Thought|Action|Observation|Final Answer|Answer)[ \t]*(\d+)?[ \t]*[:：][ \t]*/gi;
+  const matches = [...working.matchAll(labelRe)];
+  if (!matches.length) {
+    return { trace, answer: working };
+  }
+
+  let answer = working.slice(0, matches[0].index).trim();
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const label = match[2].toLowerCase();
+    const number = match[3] || '';
+    const start = match.index + match[0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index : working.length;
+    const body = working.slice(start, end).trim();
+    if (!body) continue;
+
+    if (label === 'final answer' || label === 'answer') {
+      answer += (answer ? '\n\n' : '') + body;
+    } else {
+      trace.push({ kind: label, number, body });
+    }
+  }
+
+  return { trace, answer };
+}
+
+function renderTraceBlocks(blocks) {
+  const labelMap = {
+    thought: 'Thought',
+    action: 'Action',
+    observation: 'Observation'
+  };
+  const groups = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const current = blocks[i];
+    const next = blocks[i + 1];
+    if (
+      current.kind === 'thought' &&
+      next &&
+      next.kind === 'action' &&
+      current.number === next.number
+    ) {
+      groups.push({ kind: 'thought-action', blocks: [current, next] });
+      i++;
+    } else {
+      groups.push({ kind: current.kind, blocks: [current] });
+    }
+  }
+
+  return `
+    <div class="trace-panel" aria-label="Reasoning trace">
+      ${groups.map(group => {
+        return `
+          <div class="trace-card trace-${escapeHtml(group.kind)}">
+            ${group.blocks.map(block => {
+              const label = labelMap[block.kind] || block.kind;
+              const number = block.number ? ` ${escapeHtml(block.number)}` : '';
+              return `
+                <div class="trace-line">
+                  <span class="trace-label">${label}${number}</span>
+                  <span class="trace-body">${renderTraceBody(block.body)}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderTraceBody(text) {
+  const escaped = escapeHtml(text);
+  return escaped.replace(/\n/g, '<br>');
 }
 
 function renderMarkdown(text) {

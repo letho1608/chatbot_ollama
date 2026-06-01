@@ -3,7 +3,8 @@
 from core.safety import (
     check_content_safety, detect_prompt_injection,
     sanitize_pii, check_security_relevance,
-    is_greeting_or_social, validate_input
+    is_greeting_or_social, validate_input,
+    sanitize_secrets, sanitize_sensitive, validate_output
 )
 
 
@@ -87,6 +88,38 @@ class TestPII:
         assert sanitized == "What is penetration testing?"
         assert found == []
 
+    def test_pii_metadata_does_not_include_raw_value(self):
+        sanitized, found = sanitize_pii("Contact me at test@example.com")
+        assert found == ["email"]
+        assert all("test@example.com" not in item for item in found)
+
+
+class TestSecrets:
+    def test_openai_key_redacted(self):
+        fake_key = "sk-" + "abcdefghijklmnopqrstuvwxyz1234567890"
+        text = f"api key: {fake_key}"
+        sanitized, found = sanitize_secrets(text)
+        assert fake_key not in sanitized
+        assert "[REDACTED_OPENAI_API_KEY]" in sanitized
+        assert "openai_api_key" in found
+
+    def test_assignment_secret_redacted(self):
+        text = "The database password = supersecret123"
+        sanitized, found = sanitize_secrets(text)
+        assert "supersecret123" not in sanitized
+        assert "[REDACTED_ASSIGNMENT_SECRET]" in sanitized
+        assert "assignment_secret" in found
+
+    def test_sensitive_sanitizer_handles_pii_and_secrets(self):
+        text = "email test@example.com token=abcdef1234567890"
+        sanitized, found = sanitize_sensitive(text)
+        assert "test@example.com" not in sanitized
+        assert "abcdef1234567890" not in sanitized
+        assert "[EMAIL]" in sanitized
+        assert "[REDACTED_ASSIGNMENT_SECRET]" in sanitized
+        assert any(item.startswith("pii:") for item in found)
+        assert any(item.startswith("secret:") for item in found)
+
 
 class TestSecurityRelevance:
     def test_security_keyword_found(self):
@@ -124,3 +157,18 @@ class TestValidateInput:
         r = validate_input("My email is test@test.com, what is a firewall?")
         assert r.passed is True
         assert "[EMAIL]" in r.sanitized
+
+    def test_secret_sanitized(self):
+        r = validate_input("For security audit, api_key=abcdef1234567890")
+        assert r.passed is True
+        assert "abcdef1234567890" not in r.sanitized
+        assert "[REDACTED_ASSIGNMENT_SECRET]" in r.sanitized
+
+
+class TestValidateOutput:
+    def test_output_redacts_secret(self):
+        fake_key = "sk-" + "abcdefghijklmnopqrstuvwxyz1234567890"
+        r = validate_output(f"The API key is {fake_key}")
+        assert r.passed is True
+        assert fake_key not in r.sanitized
+        assert "[REDACTED_OPENAI_API_KEY]" in r.sanitized
