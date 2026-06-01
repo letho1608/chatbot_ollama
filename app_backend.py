@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time as time_module
 import uuid
@@ -302,20 +303,14 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
     final_max_tokens = adaptive.get("max_tokens", req.max_tokens)
     final_temperature = adaptive.get("temperature", req.temperature)
 
-    async def generate():
-        ok2, rem = rate_limiter.check(user.id)
-        if not ok2:
-            yield f"data: {json.dumps({'error': 'Quá nhiều yêu cầu. Vui lòng đợi 60s.'})}\n\n"
-            return
+    ok2, rem = rate_limiter.check(user.id)
+    if not ok2:
+        return JSONResponse({"error": "Quá nhiều yêu cầu. Vui lòng đợi 60s."}, status_code=429)
 
-        qitem = await queue.enqueue(user.id, user.username, conv_id)
-        pos = await queue.get_position(conv_id)
-        if pos > 0:
-            yield f"data: {json.dumps({'queue': pos, 'content': f'⏳ Đang chờ... Vị trí: #{pos}'})}\n\n"
+    event_channel: asyncio.Queue[dict] = asyncio.Queue()
 
-        await queue.acquire()
-        queue.mark_active(conv_id)
-
+    async def handler():
+        await queue.acquire_ollama()
         try:
             async with httpx.AsyncClient(timeout=300) as client:
                 try:
@@ -336,7 +331,7 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
                     ) as resp:
                         if resp.status_code != 200:
                             err = await resp.aread()
-                            yield f"data: {json.dumps({'error': f'Ollama error: {err.decode()}'})}\n\n"
+                            await event_channel.put({"error": f"Ollama error: {err.decode()}"})
                             return
 
                         full = ""
@@ -347,7 +342,7 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
                                     content = chunk.get("message", {}).get("content", "")
                                     full += content
                                     done = chunk.get("done", False)
-                                    yield f"data: {json.dumps({'content': content, 'done': done, 'conversation_id': conv_id})}\n\n"
+                                    await event_channel.put({"content": content, "done": done, "conversation_id": conv_id})
                                     if done:
                                         db2 = next(get_db())
                                         try:
@@ -362,11 +357,28 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
                                 except json.JSONDecodeError:
                                     pass
                 except httpx.ConnectError:
-                    yield f"data: {json.dumps({'error': 'Cannot connect to Ollama. Run: ollama serve'})}\n\n"
+                    await event_channel.put({"error": "Cannot connect to Ollama. Run: ollama serve"})
                 except Exception as e:
-                    yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                    await event_channel.put({"error": str(e)})
         finally:
-            await queue.release(conv_id)
+            queue.release_ollama()
+            await event_channel.put({"done": True, "internal": True})
+
+    await queue.enqueue(user.id, user.username, conv_id, handler)
+    pos = await queue.get_position(conv_id)
+
+    async def generate():
+        if pos > 0:
+            yield f"data: {json.dumps({'queue': pos, 'content': f'⏳ Đang chờ... Vị trí: #{pos}'})}\n\n"
+
+        while True:
+            event = await event_channel.get()
+            if event.get("done") and event.get("internal"):
+                break
+            if "error" in event:
+                yield f"data: {json.dumps(event)}\n\n"
+                return
+            yield f"data: {json.dumps(event)}\n\n"
 
         yield "data: [DONE]\n\n"
 
@@ -820,7 +832,7 @@ async def admin_system(admin: User = Depends(require_admin)):
 
 # ─── Init ─────────────────────────────────────────────────────────────────────
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     init_db()
     db = next(get_db())
     try:
@@ -830,6 +842,17 @@ def on_startup():
             db.commit()
     finally:
         db.close()
+
+    # Auto-scaling worker pool
+    await queue.start()
+
+    # Auto-start Cloudflare tunnel
+    try:
+        from core.tunnel import start_tunnel
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, lambda: start_tunnel(8000))
+    except Exception as e:
+        print(f"[Tunnel] auto-start skipped: {e}")
 
 
 if __name__ == "__main__":
