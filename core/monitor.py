@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from core.database import AuditLog
 from core.config import AgentConfig, estimate_tokens
 from core.prompts import TOOL_REGISTRY
+from core.config import AgentConfig, estimate_model_cost_usd, estimate_tokens
 
 
 class AuditLogger:
@@ -16,6 +17,8 @@ class AuditLogger:
         self.enabled = enabled
         self.prompt_log_enabled = os.getenv("PROMPT_LOG_ENABLED", "true").lower() not in {"0", "false", "no"}
         self.prompt_log_dir = Path(os.getenv("PROMPT_LOG_DIR", "logs/system_prompts"))
+        self.ai_log_enabled = os.getenv("AI_LOG_ENABLED", "true").lower() not in {"0", "false", "no"}
+        self.ai_log_path = Path(os.getenv("AI_LOG_PATH", "logs/AI.log"))
 
     def log(self, user_id: Optional[int], event: str, detail: Any = None, ip: str = "", db: Optional[Session] = None):
         if not self.enabled:
@@ -30,15 +33,52 @@ class AuditLogger:
             db.add(entry)
             db.flush()
 
-    def log_chat(self, user_id: int, query: str, response: str, model: str, latency_ms: int, db: Session, ip: str = "", safety_flagged: bool = False):
+    def log_chat(
+        self,
+        user_id: int,
+        query: str,
+        response: str,
+        model: str,
+        latency_ms: int,
+        db: Session,
+        ip: str = "",
+        safety_flagged: bool = False,
+        max_tokens: Optional[int] = None,
+        truncated: bool = False,
+        username: str = "",
+        conversation_id: str = "",
+    ):
+        input_tokens = estimate_tokens(query)
+        output_tokens = estimate_tokens(response)
+        estimated_cost_usd = estimate_model_cost_usd(model, input_tokens, output_tokens)
         detail = {
             "model": model,
             "latency_ms": latency_ms,
-            "input_tokens": estimate_tokens(query),
-            "output_tokens": estimate_tokens(response),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+            "max_tokens": max_tokens,
+            "truncated": truncated,
             "safety_flagged": safety_flagged,
         }
         self.log(user_id, "chat", detail, ip, db)
+        self.log_ai_event("chat_completed", {
+            "user_id": user_id,
+            "username": username,
+            "conversation_id": conversation_id,
+            "model": model,
+            "latency_ms": latency_ms,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "estimated_cost_usd": estimated_cost_usd,
+            "max_tokens": max_tokens,
+            "truncated": truncated,
+            "ip_address": ip,
+            "query_preview": query[:500],
+            "response_preview": response[:1000],
+        })
 
     def log_login(self, user_id: int, success: bool, db: Session, ip: str = ""):
         self.log(user_id, "login" if success else "login_failed", {"success": success}, ip, db)
@@ -120,6 +160,21 @@ class AuditLogger:
                 }, ensure_ascii=False),
             })
         return react_messages
+    def log_ai_event(self, event: str, payload: dict[str, Any]) -> Optional[str]:
+        if not self.enabled or not self.ai_log_enabled:
+            return None
+        try:
+            self.ai_log_path.parent.mkdir(parents=True, exist_ok=True)
+            record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": event,
+                **payload,
+            }
+            with self.ai_log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            return str(self.ai_log_path)
+        except Exception:
+            return None
 
 
 logger = AuditLogger()

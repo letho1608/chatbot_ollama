@@ -4,6 +4,7 @@ import os
 import time as time_module
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -11,13 +12,13 @@ from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from core.database import init_db, get_db, User, Conversation, Message, Memory
+from core.database import init_db, get_db, User, Conversation, Message, Memory, AuditLog
 from core.auth import hash_password, verify_password, create_access_token, decode_token
 from core.agent import AgentOrchestrator, AgentContext
-from core.config import AgentConfig
+from core.config import AgentConfig, clamp_max_tokens
 from core.monitor import logger as audit_logger
 from core.memory import get_relevant_memories, set_memory, delete_memory, format_memories_for_prompt
 from core.queue import queue, rate_limiter
@@ -50,6 +51,44 @@ def format_ollama_error(exc: Exception | None = None, status_code: int | None = 
 def get_ip(request: Request) -> str:
     forwarded = request.headers.get("X-Forwarded-For", "")
     return forwarded.split(",")[0].strip() if forwarded else request.client.host if request.client else ""
+
+
+def get_usage_summary(db: Session) -> dict:
+    totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "max_tokens_seen": 0,
+        "truncated_responses": 0,
+    }
+    rows = db.query(AuditLog.detail).filter(AuditLog.event == "chat").all()
+    for (detail,) in rows:
+        if not isinstance(detail, dict):
+            continue
+        input_tokens = int(detail.get("input_tokens") or 0)
+        output_tokens = int(detail.get("output_tokens") or 0)
+        totals["input_tokens"] += input_tokens
+        totals["output_tokens"] += output_tokens
+        totals["total_tokens"] += int(detail.get("total_tokens") or input_tokens + output_tokens)
+        totals["estimated_cost_usd"] += float(detail.get("estimated_cost_usd") or 0.0)
+        totals["max_tokens_seen"] = max(totals["max_tokens_seen"], int(detail.get("max_tokens") or 0))
+        if detail.get("truncated"):
+            totals["truncated_responses"] += 1
+    totals["estimated_cost_usd"] = round(totals["estimated_cost_usd"], 8)
+    return totals
+
+
+def get_ai_log_info() -> dict:
+    path = Path(audit_logger.ai_log_path)
+    exists = path.exists()
+    return {
+        "enabled": audit_logger.ai_log_enabled,
+        "path": str(path),
+        "exists": exists,
+        "size_bytes": path.stat().st_size if exists else 0,
+        "updated_at": datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat() if exists else None,
+    }
 
 
 # ─── Auth Dependency ─────────────────────────────────────────────────────────
@@ -112,7 +151,7 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 40
-    max_tokens: int = 2048
+    max_tokens: int = Field(default=2048, ge=1, le=32768)
 
 
 class TitleUpdate(BaseModel):
@@ -317,7 +356,12 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
     ollama_messages = agent.build_ollama_messages(ctx, db)
 
     adaptive = agent.get_adaptive_config(req.message)
-    final_max_tokens = adaptive.get("max_tokens", req.max_tokens)
+    requested_max_tokens = clamp_max_tokens(req.max_tokens, agent.config)
+    adaptive_max_tokens = adaptive.get("max_tokens")
+    final_max_tokens = requested_max_tokens
+    if adaptive_max_tokens is not None:
+        final_max_tokens = min(requested_max_tokens, clamp_max_tokens(adaptive_max_tokens, agent.config))
+    ctx.max_tokens = final_max_tokens
     final_temperature = adaptive.get("temperature", req.temperature)
     ollama_options = {
         "temperature": final_temperature,
@@ -342,6 +386,21 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
         return JSONResponse({"error": "Quá nhiều yêu cầu. Vui lòng đợi 60s."}, status_code=429)
 
     event_channel: asyncio.Queue[dict] = asyncio.Queue()
+    max_output_chars = max(final_max_tokens * 4, 1)
+
+    def save_assistant_response(response_text: str, truncated: bool = False):
+        db2 = next(get_db())
+        try:
+            asst_msg = Message(conversation_id=conv_id, role="assistant", content=response_text)
+            db2.add(asst_msg)
+            conv2 = db2.query(Conversation).filter(Conversation.id == conv_id).first()
+            if conv2:
+                conv2.updated_at = datetime.now(timezone.utc)
+            db2.commit()
+            agent.process_response(ctx, response_text, db2, get_ip(request), max_tokens=final_max_tokens, truncated=truncated)
+            db2.commit()
+        finally:
+            db2.close()
 
     async def handler():
         await queue.acquire_ollama()
@@ -382,28 +441,30 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
                                 except json.JSONDecodeError:
                                     continue
 
-                                content = chunk.get("message", {}).get("content", "")
-                                full += content
+                                raw_content = chunk.get("message", {}).get("content", "")
                                 done = chunk.get("done", False)
-                                await event_channel.put({"content": content, "done": done, "conversation_id": conv_id})
+                                truncated = False
+                                content = raw_content
+                                if raw_content and len(full) + len(raw_content) > max_output_chars:
+                                    remaining = max(max_output_chars - len(full), 0)
+                                    content = raw_content[:remaining]
+                                    done = True
+                                    truncated = True
+
+                                full += content
+                                await event_channel.put({
+                                    "content": content,
+                                    "done": done,
+                                    "conversation_id": conv_id,
+                                    "truncated": truncated,
+                                })
 
                                 if done:
                                     if not full.strip():
                                         await event_channel.put({"error": "Ollama trả về phản hồi rỗng. Hãy thử lại hoặc chọn model khác."})
                                         return
 
-                                    db2 = next(get_db())
-                                    try:
-                                        asst_msg = Message(conversation_id=conv_id, role="assistant", content=full)
-                                        db2.add(asst_msg)
-                                        conv2 = db2.query(Conversation).filter(Conversation.id == conv_id).first()
-                                        if conv2:
-                                            conv2.updated_at = datetime.now(timezone.utc)
-                                        db2.commit()
-                                        agent.process_response(ctx, full, db2, get_ip(request))
-                                        db2.commit()
-                                    finally:
-                                        db2.close()
+                                    save_assistant_response(full, truncated=truncated)
                                     return
                         if full.strip():
                             return
@@ -668,6 +729,8 @@ async def admin_stats(admin: User = Depends(require_admin), db: Session = Depend
     convs_today = db.query(Conversation).filter(Conversation.created_at >= today_start).count()
     msgs_today = db.query(Message).filter(Message.timestamp >= today_start).count()
     convs_week = db.query(Conversation).filter(Conversation.created_at >= today_start - timedelta(days=7)).count()
+    usage = get_usage_summary(db)
+    ai_log = get_ai_log_info()
     total_storage = 0
     db_path = os_mod.path.join("data", "chatbot.db")
     if os_mod.path.exists(db_path):
@@ -678,6 +741,10 @@ async def admin_stats(admin: User = Depends(require_admin), db: Session = Depend
         "convs_today": convs_today, "msgs_today": msgs_today,
         "convs_week": convs_week,
         "storage_bytes": total_storage,
+        "usage": usage,
+        "max_response_tokens": agent.config.max_response_tokens,
+        "default_max_tokens": agent.config.default_max_tokens,
+        "ai_log": ai_log,
     }
 
 
@@ -835,7 +902,7 @@ async def admin_tunnel_status(admin: User = Depends(require_admin)):
 
 
 @app.get("/api/admin/system")
-async def admin_system(admin: User = Depends(require_admin)):
+async def admin_system(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     import sys, platform, shutil
     ollama_ok = False
     ollama_models = 0
@@ -868,6 +935,7 @@ async def admin_system(admin: User = Depends(require_admin)):
 
     db_path = os_mod.path.join("data", "chatbot.db")
     db_size = os_mod.path.getsize(db_path) if os_mod.path.exists(db_path) else 0
+    usage = get_usage_summary(db)
     total, used, free = shutil.disk_usage(os_mod.path.abspath("."))
     import psutil
     mem = psutil.virtual_memory()
@@ -890,6 +958,11 @@ async def admin_system(admin: User = Depends(require_admin)):
         "ram_percent": mem.percent,
         "process_memory_mb": round(proc.memory_info().rss / 1024 / 1024, 1),
         "process_cpu_percent": proc.cpu_percent(interval=0.1),
+        "default_max_tokens": agent.config.default_max_tokens,
+        "max_response_tokens": agent.config.max_response_tokens,
+        "max_context_tokens": agent.config.max_context_tokens,
+        "usage": usage,
+        "ai_log": get_ai_log_info(),
     }
 
 
