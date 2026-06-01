@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from database import Memory
+from core.database import Memory
 
 
 def get_relevant_memories(user_id: int, query: str, db: Session, limit: int = 5) -> List[Memory]:
@@ -35,6 +35,7 @@ def delete_memory(user_id: int, key: str, db: Session) -> bool:
     mem = get_memory(user_id, key, db)
     if mem:
         db.delete(mem)
+        db.flush()
         return True
     return False
 

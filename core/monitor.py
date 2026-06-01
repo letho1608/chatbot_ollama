@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from database import AuditLog
+from core.database import AuditLog
 from core.config import AgentConfig, estimate_tokens
 
 

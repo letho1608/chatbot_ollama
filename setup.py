@@ -170,7 +170,7 @@ def main():
     print("  Setup complete!")
     print()
     print("  Start the server:")
-    print(f"    python -m uvicorn app_backend:app --host 127.0.0.1 --port 8000")
+    print(f"    python -m uvicorn main:app --host 127.0.0.1 --port 8000")
     print()
     print("  Open browser:")
     print("    http://127.0.0.1:8000")
