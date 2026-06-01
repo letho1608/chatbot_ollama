@@ -445,7 +445,7 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
 from core.rag import (
     store_document_sync, retrieve, format_rag_context,
     store_session_document, get_session_docs, delete_session_doc,
-    session_retrieve, is_security_content, is_allowed_extension,
+    session_retrieve, hybrid_retrieve, is_security_content, is_allowed_extension,
     extract_text_from_bytes, session_store,
 )
 from fastapi import UploadFile, File, Form
@@ -492,8 +492,14 @@ async def rag_delete(doc_id: str, user: User = Depends(require_user)):
 async def rag_search(q: str = "", user: User = Depends(require_user)):
     if not q:
         return {"results": []}
-    results = session_retrieve(user.id, q)
+    results = hybrid_retrieve(user.id, q)
     return {"results": [{"content": r[0][:200], "score": round(r[1], 3)} for r in results]}
+
+
+@app.get("/api/rag/graph/status")
+async def rag_graph_status(user: User = Depends(require_user)):
+    from core.graphrag import get_graph_status
+    return get_graph_status()
 
 
 # ─── Models API ───────────────────────────────────────────────────────────────
