@@ -23,6 +23,8 @@ from core.memory import get_relevant_memories, set_memory, delete_memory, format
 from core.queue import queue, rate_limiter
 
 OLLAMA_BASE = "http://127.0.0.1:11434"
+OLLAMA_CONNECT_TIMEOUT = 5.0
+OLLAMA_READ_TIMEOUT = 120.0
 
 app = FastAPI(title="Ollama Chat")
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -30,6 +32,19 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory="templates")
 
 agent = AgentOrchestrator()
+
+
+def format_ollama_error(exc: Exception | None = None, status_code: int | None = None, detail: str = "") -> str:
+    if status_code:
+        clean_detail = detail.strip()[:500]
+        return f"Ollama trả về lỗi HTTP {status_code}" + (f": {clean_detail}" if clean_detail else ".")
+    if isinstance(exc, httpx.ConnectError):
+        return "Không thể kết nối Ollama. Hãy chạy `ollama serve` hoặc mở Ollama app."
+    if isinstance(exc, httpx.TimeoutException):
+        return "Ollama phản hồi quá lâu. Hãy thử model nhẹ hơn, giảm max tokens hoặc kiểm tra máy đang tải nặng."
+    if exc:
+        return f"Lỗi khi gọi Ollama: {str(exc)}"
+    return "Lỗi không xác định khi gọi Ollama."
 
 
 def get_ip(request: Request) -> str:
@@ -92,7 +107,7 @@ class LoginRequest(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
-    model: str = "minimax-m3:cloud"
+    model: str = "qwen2:7b"
     system_prompt: str = ""
     temperature: float = 0.7
     top_p: float = 0.9
@@ -304,6 +319,22 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
     adaptive = agent.get_adaptive_config(req.message)
     final_max_tokens = adaptive.get("max_tokens", req.max_tokens)
     final_temperature = adaptive.get("temperature", req.temperature)
+    ollama_options = {
+        "temperature": final_temperature,
+        "top_p": req.top_p,
+        "top_k": req.top_k,
+        "num_predict": final_max_tokens,
+    }
+
+    audit_logger.log_system_prompt(
+        user_id=user.id,
+        username=user.username,
+        conversation_id=conv_id,
+        model=req.model,
+        messages=ollama_messages,
+        options=ollama_options,
+        ip=get_ip(request),
+    )
 
     ok2, rem = rate_limiter.check(user.id)
     if not ok2:
@@ -314,54 +345,77 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
     async def handler():
         await queue.acquire_ollama()
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=3.0)) as client:
-                try:
-                    async with client.stream(
-                        "POST",
-                        f"{OLLAMA_BASE}/api/chat",
-                        json={
-                            "model": req.model,
-                            "messages": ollama_messages,
-                            "stream": True,
-                            "options": {
-                                "temperature": final_temperature,
-                                "top_p": req.top_p,
-                                "top_k": req.top_k,
-                                "num_predict": final_max_tokens,
-                            },
-                        },
-                    ) as resp:
-                        if resp.status_code != 200:
-                            err = await resp.aread()
-                            await event_channel.put({"error": f"Ollama error: {err.decode()}"})
-                            return
+            timeout = httpx.Timeout(OLLAMA_READ_TIMEOUT, connect=OLLAMA_CONNECT_TIMEOUT)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                full = ""
+                for attempt in range(agent.config.max_retries):
+                    try:
+                        if attempt > 0:
+                            await event_channel.put({
+                                "content": f"\n\nĐang thử lại kết nối Ollama lần {attempt + 1}/{agent.config.max_retries}...\n\n",
+                                "conversation_id": conv_id,
+                            })
 
-                        full = ""
-                        async for line in resp.aiter_lines():
-                            if line.strip():
+                        async with client.stream(
+                            "POST",
+                            f"{OLLAMA_BASE}/api/chat",
+                            json={
+                                "model": req.model,
+                                "messages": ollama_messages,
+                                "stream": True,
+                                "options": ollama_options,
+                            },
+                        ) as resp:
+                            if resp.status_code != 200:
+                                err = await resp.aread()
+                                await event_channel.put({
+                                    "error": format_ollama_error(status_code=resp.status_code, detail=err.decode(errors="replace"))
+                                })
+                                return
+
+                            async for line in resp.aiter_lines():
+                                if not line.strip():
+                                    continue
                                 try:
                                     chunk = json.loads(line)
-                                    content = chunk.get("message", {}).get("content", "")
-                                    full += content
-                                    done = chunk.get("done", False)
-                                    await event_channel.put({"content": content, "done": done, "conversation_id": conv_id})
-                                    if done:
-                                        db2 = next(get_db())
-                                        try:
-                                            asst_msg = Message(conversation_id=conv_id, role="assistant", content=full)
-                                            db2.add(asst_msg)
-                                            conv.updated_at = datetime.now(timezone.utc)
-                                            db2.commit()
-                                            agent.process_response(ctx, full, db2, get_ip(request))
-                                            db2.commit()
-                                        finally:
-                                            db2.close()
                                 except json.JSONDecodeError:
-                                    pass
-                except httpx.ConnectError:
-                    await event_channel.put({"error": "Cannot connect to Ollama. Run: ollama serve"})
-                except Exception as e:
-                    await event_channel.put({"error": str(e)})
+                                    continue
+
+                                content = chunk.get("message", {}).get("content", "")
+                                full += content
+                                done = chunk.get("done", False)
+                                await event_channel.put({"content": content, "done": done, "conversation_id": conv_id})
+
+                                if done:
+                                    if not full.strip():
+                                        await event_channel.put({"error": "Ollama trả về phản hồi rỗng. Hãy thử lại hoặc chọn model khác."})
+                                        return
+
+                                    db2 = next(get_db())
+                                    try:
+                                        asst_msg = Message(conversation_id=conv_id, role="assistant", content=full)
+                                        db2.add(asst_msg)
+                                        conv2 = db2.query(Conversation).filter(Conversation.id == conv_id).first()
+                                        if conv2:
+                                            conv2.updated_at = datetime.now(timezone.utc)
+                                        db2.commit()
+                                        agent.process_response(ctx, full, db2, get_ip(request))
+                                        db2.commit()
+                                    finally:
+                                        db2.close()
+                                    return
+                        if full.strip():
+                            return
+                    except (httpx.ConnectError, httpx.TimeoutException) as e:
+                        if full.strip() or attempt == agent.config.max_retries - 1:
+                            await event_channel.put({"error": format_ollama_error(e)})
+                            return
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                    except Exception as e:
+                        await event_channel.put({"error": format_ollama_error(e)})
+                        return
+
+                await event_channel.put({"error": "Dừng xử lý: đạt số lần thử tối đa khi gọi Ollama."})
         finally:
             queue.release_ollama()
             await event_channel.put({"done": True, "internal": True})

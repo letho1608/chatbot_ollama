@@ -7,5 +7,6 @@ venv/
 *.db 
 server.log 
 token.json
+logs/
 .pytest_cache/
 server.err

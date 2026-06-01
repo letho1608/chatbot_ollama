@@ -1,9 +1,12 @@
 """Agent framework tests: orchestrator, context, config, adaptive params."""
 
+from types import SimpleNamespace
+
 from core.agent import AgentOrchestrator, AgentContext, AgentConfig
 
 from core.config import MODEL_CATALOG, MODEL_CATEGORIES, SECURITY_KEYWORDS
 from core.monitor import AuditLogger
+from core.prompts import build_system_prompt
 
 
 class TestAgentContext:
@@ -60,6 +63,50 @@ class TestAgentOrchestrator:
         roles = [m["role"] for m in msgs]
         assert "system" in roles
         assert "user" in roles
+
+    def test_system_prompt_includes_tool_registry_and_error_rules(self):
+        prompt = build_system_prompt(["Custom classroom rule."])
+        assert "Tool registry" in prompt
+        assert "rag_search" in prompt
+        assert "Quy tắc xử lý lỗi" in prompt
+        assert "Custom classroom rule." in prompt
+
+    def test_build_messages_trims_long_history(self, db, normal_user):
+        agent = AgentOrchestrator(AgentConfig(max_history_messages=3, max_context_tokens=80))
+        ctx = AgentContext(
+            user_id=normal_user.id, username="testuser",
+            query="What is firewall hardening?",
+            conversation_id="test-build-trim", model="minimax-m3:cloud",
+        )
+        ctx.history_messages = [
+            SimpleNamespace(role="user", content="old " * 200),
+            SimpleNamespace(role="assistant", content="middle answer"),
+            SimpleNamespace(role="user", content="recent question"),
+            SimpleNamespace(role="assistant", content="recent answer"),
+        ]
+        msgs = agent.build_ollama_messages(ctx, db)
+        contents = [m["content"] for m in msgs]
+        assert not any("old old old" in c for c in contents)
+        assert any("rút gọn" in c for c in contents)
+
+    def test_log_system_prompt_json_file(self, tmp_path):
+        logger = AuditLogger()
+        logger.prompt_log_dir = tmp_path / "system_prompts"
+        path = logger.log_system_prompt(
+            user_id=1,
+            username="testuser",
+            conversation_id="conv-1",
+            model="qwen2:7b",
+            messages=[
+                {"role": "system", "content": "System rules"},
+                {"role": "user", "content": "What is a firewall?"},
+            ],
+            options={"temperature": 0.7},
+            ip="127.0.0.1",
+        )
+        assert path is not None
+        assert path.endswith(".json")
+        assert "System rules" in open(path, encoding="utf-8").read()
 
 
 class TestAgentConfig:
