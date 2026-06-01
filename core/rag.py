@@ -49,11 +49,14 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 
 def get_embedding(text: str, model: str = EMBED_MODEL) -> List[float]:
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(f"{OLLAMA_BASE}/api/embeddings", json={"model": model, "prompt": text})
-        if resp.status_code == 200:
-            return resp.json().get("embedding", [])
+    try:
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(f"{OLLAMA_BASE}/api/embeddings", json={"model": model, "prompt": text})
+            if resp.status_code == 200:
+                return resp.json().get("embedding", [])
+    except (httpx.HTTPError, ValueError):
         return []
+    return []
 
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
@@ -110,7 +113,7 @@ def format_rag_context(results: List[Tuple[str, float]]) -> str:
     parts = []
     for content, score in results:
         parts.append(content)
-    return "Relevant context:\n" + "\n---\n".join(parts)
+    return "Relevant context (uploaded documents and knowledge graph facts):\n" + "\n---\n".join(parts)
 
 
 # ─── Session-only (in-memory) RAG ─────────────────────────────────────────────
@@ -158,6 +161,20 @@ def session_retrieve(user_id: int, query: str, top_k: int = RAG_RESULTS) -> List
                 scored.append((chunk["content"], score))
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored[:top_k]
+
+
+def graphrag_retrieve(query: str, top_k: int = RAG_RESULTS) -> List[Tuple[str, float]]:
+    try:
+        from core.graphrag import retrieve_graph_context
+        return retrieve_graph_context(query, top_k=top_k)
+    except Exception:
+        return []
+
+
+def hybrid_retrieve(user_id: int, query: str, top_k: int = RAG_RESULTS) -> List[Tuple[str, float]]:
+    session_results = session_retrieve(user_id, query, top_k=top_k)
+    graph_results = graphrag_retrieve(query, top_k=top_k)
+    return session_results + graph_results
 
 
 SESSION_ALLOWED_EXTENSIONS = {".txt", ".md", ".csv", ".log", ".json", ".yaml", ".yml", ".conf", ".cfg", ".ini", ".xml", ".ps1", ".sh", ".py", ".bat", ".docx", ".pdf"}

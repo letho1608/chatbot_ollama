@@ -5,6 +5,12 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, F
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 DB_PATH = os.getenv("DATABASE_URL", "sqlite:///./data/chatbot.db")
+if DB_PATH.startswith("sqlite:///./"):
+    db_file = DB_PATH.removeprefix("sqlite:///./")
+    db_dir = os.path.dirname(db_file)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
 engine = create_engine(DB_PATH, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine, autoflush=False)
 Base = declarative_base()
