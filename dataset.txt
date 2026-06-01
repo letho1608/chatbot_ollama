@@ -1,0 +1,2 @@
+https://ceur-ws.org/Vol-3433/paper6.pdf
+https://github.com/garima0106/AISecKG-cybersecurity-dataset/tree/main/dataset
