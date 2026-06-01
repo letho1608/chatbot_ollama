@@ -22,6 +22,7 @@ from core.config import AgentConfig, clamp_max_tokens
 from core.monitor import logger as audit_logger
 from core.memory import get_relevant_memories, set_memory, delete_memory, format_memories_for_prompt
 from core.queue import queue, rate_limiter
+from core.safety import sanitize_sensitive
 
 OLLAMA_BASE = "http://127.0.0.1:11434"
 OLLAMA_CONNECT_TIMEOUT = 5.0
@@ -408,6 +409,20 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
             timeout = httpx.Timeout(OLLAMA_READ_TIMEOUT, connect=OLLAMA_CONNECT_TIMEOUT)
             async with httpx.AsyncClient(timeout=timeout) as client:
                 full = ""
+                redacted_full = ""
+                redacted_sent_len = 0
+                redaction_holdback_chars = 512
+
+                def next_safe_output(done: bool = False) -> str:
+                    nonlocal redacted_full, redacted_sent_len
+                    redacted_full, _ = sanitize_sensitive(full)
+                    emit_upto = len(redacted_full) if done else max(len(redacted_full) - redaction_holdback_chars, 0)
+                    if emit_upto <= redacted_sent_len:
+                        return ""
+                    safe_chunk = redacted_full[redacted_sent_len:emit_upto]
+                    redacted_sent_len = emit_upto
+                    return safe_chunk
+
                 for attempt in range(agent.config.max_retries):
                     try:
                         if attempt > 0:
@@ -452,19 +467,21 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
                                     truncated = True
 
                                 full += content
-                                await event_channel.put({
-                                    "content": content,
-                                    "done": done,
-                                    "conversation_id": conv_id,
-                                    "truncated": truncated,
-                                })
+                                safe_content = next_safe_output(done=done)
+                                if safe_content or done:
+                                    await event_channel.put({
+                                        "content": safe_content,
+                                        "done": done,
+                                        "conversation_id": conv_id,
+                                        "truncated": truncated,
+                                    })
 
                                 if done:
                                     if not full.strip():
                                         await event_channel.put({"error": "Ollama trả về phản hồi rỗng. Hãy thử lại hoặc chọn model khác."})
                                         return
 
-                                    save_assistant_response(full, truncated=truncated)
+                                    save_assistant_response(redacted_full, truncated=truncated)
                                     return
                         if full.strip():
                             return

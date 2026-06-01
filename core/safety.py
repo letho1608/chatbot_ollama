@@ -34,8 +34,46 @@ def sanitize_pii(text: str) -> Tuple[str, List[str]]:
     for pii_type, pattern in PII_PATTERNS:
         matches = re.findall(pattern, result)
         for m in matches:
-            found.append(f"{pii_type}:{m}")
+            found.append(pii_type)
             result = result.replace(m, f"[{pii_type.upper()}]")
+    return result, found
+
+
+SECRET_PATTERNS: List[Tuple[str, str]] = [
+    ("openai_api_key", r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    ("github_token", r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b"),
+    ("github_fine_grained_token", r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
+    ("aws_access_key", r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    ("google_api_key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    ("slack_token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b"),
+    ("private_key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
+    ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    ("assignment_secret", r"(?i)\b(api[_-]?key|secret|token|password|passwd|pwd|credential)\b\s*[:=]\s*['\"]?([^\s'\";,]{8,})"),
+]
+
+
+def sanitize_secrets(text: str) -> Tuple[str, List[str]]:
+    result = text
+    found = []
+    for secret_type, pattern in SECRET_PATTERNS:
+        matches = list(re.finditer(pattern, result, re.IGNORECASE | re.MULTILINE))
+        for match in reversed(matches):
+            found.append(secret_type)
+            if secret_type == "assignment_secret" and match.lastindex and match.lastindex >= 2:
+                value_start, value_end = match.span(2)
+                result = result[:value_start] + f"[REDACTED_{secret_type.upper()}]" + result[value_end:]
+            else:
+                start, end = match.span()
+                result = result[:start] + f"[REDACTED_{secret_type.upper()}]" + result[end:]
+    return result, found
+
+
+def sanitize_sensitive(text: str, include_pii: bool = True) -> Tuple[str, List[str]]:
+    result, secret_list = sanitize_secrets(text)
+    found = [f"secret:{item}" for item in secret_list]
+    if include_pii:
+        result, pii_list = sanitize_pii(result)
+        found.extend(f"pii:{item}" for item in pii_list)
     return result, found
 
 
@@ -77,11 +115,17 @@ def validate_input(text: str, check_topic: bool = True) -> SafetyResult:
         topic = check_security_relevance(text)
         if not topic.passed:
             return topic
-    sanitized, pii_list = sanitize_pii(text)
-    if pii_list:
-        return SafetyResult(True, f"PII removed: {len(pii_list)} item(s)", sanitized, pii_list)
+    sanitized, sensitive_list = sanitize_sensitive(text)
+    if sensitive_list:
+        return SafetyResult(True, f"Sensitive data removed: {len(sensitive_list)} item(s)", sanitized, sensitive_list)
     return SafetyResult(True, "", text)
 
 
 def validate_output(text: str) -> SafetyResult:
-    return check_content_safety(text)
+    content = check_content_safety(text)
+    if not content.passed:
+        return content
+    sanitized, sensitive_list = sanitize_sensitive(text)
+    if sensitive_list:
+        return SafetyResult(True, f"Sensitive data removed: {len(sensitive_list)} item(s)", sanitized, sensitive_list)
+    return SafetyResult(True, "", text)
