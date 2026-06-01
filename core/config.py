@@ -118,7 +118,8 @@ class ModelInfo:
     display_name: str = ""
 
 MODEL_CATALOG: List[ModelInfo] = [
-    ModelInfo("minimax-m3:cloud", "General", "MiniMax M3 Cloud (default)"),
+    ModelInfo("qwen2:7b", "General", "Qwen2 7B local model (default)"),
+    ModelInfo("minimax-m3:cloud", "General", "MiniMax M3 Cloud"),
     ModelInfo("llama3.2:1b", "General", "Meta Llama 3.2 1B lightweight"),
     ModelInfo("llama3.2:3b", "General", "Meta Llama 3.2 3B fast"),
     ModelInfo("llama3.1:8b", "General", "Meta Llama 3.1 8B"),

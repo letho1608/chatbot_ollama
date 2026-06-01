@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from core.config import AgentConfig, estimate_tokens
 from core.memory import extract_memories_from_text, format_memories_for_prompt, resolve_memory_conflict
 from core.monitor import logger
+from core.prompts import build_system_prompt
 from core.safety import validate_input, validate_output
 from core.validator import validate_response, ValidationResult
 
@@ -48,8 +49,6 @@ class AgentOrchestrator:
         return True, None
 
     def build_ollama_messages(self, ctx: AgentContext, db: Session) -> List[Dict[str, str]]:
-        messages = []
-
         system_parts = []
         if ctx.system_prompt:
             system_parts.append(ctx.system_prompt)
@@ -68,14 +67,38 @@ class AgentOrchestrator:
         except Exception:
             pass
 
-        if system_parts:
-            messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+        messages = [{"role": "system", "content": build_system_prompt(system_parts)}]
 
-        for m in ctx.history_messages:
+        history = self._trim_history(ctx.history_messages, ctx.query)
+        if len(history) < len(ctx.history_messages):
+            messages.append({
+                "role": "system",
+                "content": "Một phần lịch sử hội thoại cũ đã được rút gọn để giữ context window ổn định.",
+            })
+
+        for m in history:
             messages.append({"role": m.role, "content": m.content})
 
         messages.append({"role": "user", "content": ctx.query})
         return messages
+
+    def _trim_history(self, history_messages: list, query: str) -> list:
+        if not history_messages:
+            return []
+
+        recent = list(history_messages)[-self.config.max_history_messages:]
+        budget = max(self.config.max_context_tokens - estimate_tokens(query), 512)
+        selected = []
+        used = 0
+
+        for msg in reversed(recent):
+            cost = estimate_tokens(getattr(msg, "content", ""))
+            if selected and used + cost > budget:
+                break
+            selected.append(msg)
+            used += cost
+
+        return list(reversed(selected))
 
     def process_response(self, ctx: AgentContext, response_text: str, db: Session, ip: str = ""):
         elapsed_ms = int((time.time() - ctx.start_time) * 1000)
