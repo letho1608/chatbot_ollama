@@ -17,6 +17,13 @@ EMBED_MODEL = "nomic-embed-text"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 80
 RAG_RESULTS = 4
+WEB_FETCH_SESSION_MIN_SCORE = float(os.getenv("WEB_FETCH_SESSION_MIN_SCORE", "0.24"))
+WEB_FETCH_GRAPH_MIN_SCORE = float(os.getenv("WEB_FETCH_GRAPH_MIN_SCORE", "3.0"))
+WEB_FRESHNESS_TERMS = (
+    "latest", "recent", "current", "today", "yesterday", "this week",
+    "newest", "news", "advisory", "mới nhất", "gần đây", "hôm nay",
+    "hiện tại", "vừa", "cảnh báo",
+)
 
 
 # In-memory session-only document store: {user_id: [doc, ...]}
@@ -113,7 +120,7 @@ def format_rag_context(results: List[Tuple[str, float]]) -> str:
     parts = []
     for content, score in results:
         parts.append(content)
-    return "Relevant context (uploaded documents and knowledge graph facts):\n" + "\n---\n".join(parts)
+    return "Relevant context (uploaded documents, knowledge graph facts, and trusted web sources):\n" + "\n---\n".join(parts)
 
 
 # ─── Session-only (in-memory) RAG ─────────────────────────────────────────────
@@ -171,10 +178,40 @@ def graphrag_retrieve(query: str, top_k: int = RAG_RESULTS) -> List[Tuple[str, f
         return []
 
 
-def hybrid_retrieve(user_id: int, query: str, top_k: int = RAG_RESULTS) -> List[Tuple[str, float]]:
+def web_retrieve(query: str, top_k: int = RAG_RESULTS) -> List[Tuple[str, float]]:
+    try:
+        from core.web_fetch import retrieve_web_context
+        return retrieve_web_context(query, top_k=top_k)
+    except Exception:
+        return []
+
+
+def query_needs_fresh_web(query: str) -> bool:
+    query_lower = query.lower()
+    return any(term in query_lower for term in WEB_FRESHNESS_TERMS)
+
+
+def has_confident_rag_hit(results: List[Tuple[str, float]], query: str = "") -> bool:
+    needs_fresh_web = query_needs_fresh_web(query)
+    for content, score in results:
+        if content.startswith("Web context:"):
+            continue
+        if needs_fresh_web and content.startswith("Graph fact:"):
+            continue
+        if content.startswith("Graph fact:") and score >= WEB_FETCH_GRAPH_MIN_SCORE:
+            return True
+        if not content.startswith("Graph fact:") and score >= WEB_FETCH_SESSION_MIN_SCORE:
+            return True
+    return False
+
+
+def hybrid_retrieve(user_id: int, query: str, top_k: int = RAG_RESULTS, include_web: bool = True) -> List[Tuple[str, float]]:
     session_results = session_retrieve(user_id, query, top_k=top_k)
     graph_results = graphrag_retrieve(query, top_k=top_k)
-    return session_results + graph_results
+    results = session_results + graph_results
+    if include_web and not has_confident_rag_hit(results, query):
+        results.extend(web_retrieve(query, top_k=top_k))
+    return results
 
 
 SESSION_ALLOWED_EXTENSIONS = {".txt", ".md", ".csv", ".log", ".json", ".yaml", ".yml", ".conf", ".cfg", ".ini", ".xml", ".ps1", ".sh", ".py", ".bat", ".docx", ".pdf"}
