@@ -7,9 +7,8 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from core.database import AuditLog
-from core.config import AgentConfig, estimate_tokens
-from core.prompts import TOOL_REGISTRY
 from core.config import AgentConfig, estimate_model_cost_usd, estimate_tokens
+from core.prompts import TOOL_REGISTRY
 
 
 class AuditLogger:
@@ -17,6 +16,7 @@ class AuditLogger:
         self.enabled = enabled
         self.prompt_log_enabled = os.getenv("PROMPT_LOG_ENABLED", "true").lower() not in {"0", "false", "no"}
         self.prompt_log_dir = Path(os.getenv("PROMPT_LOG_DIR", "logs/system_prompts"))
+        self.chat_log_dir = Path(os.getenv("CHAT_LOG_DIR", "logs/chat_events"))
         self.ai_log_enabled = os.getenv("AI_LOG_ENABLED", "true").lower() not in {"0", "false", "no"}
         self.ai_log_path = Path(os.getenv("AI_LOG_PATH", "logs/AI.log"))
 
@@ -79,6 +79,29 @@ class AuditLogger:
             "query_preview": query[:500],
             "response_preview": response[:1000],
         })
+
+        try:
+            now = datetime.now(timezone.utc)
+            day_dir = self.chat_log_dir / now.strftime("%Y-%m-%d")
+            day_dir.mkdir(parents=True, exist_ok=True)
+
+            safe_user = str(user_id)
+            filename = f"{now.strftime('%H%M%S_%f')}_user-{safe_user}_chat.json"
+            path = day_dir / filename
+            payload = {
+                "timestamp": now.isoformat(),
+                "event": "chat",
+                "user_id": user_id,
+                "model": model,
+                "latency_ms": latency_ms,
+                "input_tokens": estimate_tokens(query),
+                "output_tokens": estimate_tokens(response),
+                "safety_flagged": safety_flagged,
+                "ip_address": ip,
+            }
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def log_login(self, user_id: int, success: bool, db: Session, ip: str = ""):
         self.log(user_id, "login" if success else "login_failed", {"success": success}, ip, db)
