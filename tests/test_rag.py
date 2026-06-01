@@ -5,8 +5,10 @@ from core.rag import (
     chunk_text, is_allowed_extension, is_security_content,
     extract_text_from_bytes, store_session_document,
     get_session_docs, delete_session_doc, session_retrieve,
-    cosine_similarity, get_embedding, session_store
+    cosine_similarity, get_embedding, session_store,
+    hybrid_retrieve
 )
+from core.graphrag import GraphTriple, KnowledgeGraph
 
 
 class TestExtensions:
@@ -92,6 +94,37 @@ class TestSessionStore:
     def test_retrieve_empty(self):
         results = session_retrieve(999, "firewall")
         assert results == []
+
+
+class TestGraphRAG:
+    def test_graph_search_matches_security_entity(self):
+        graph = KnowledgeGraph([
+            GraphTriple("Snort", "can_detect", "network attacks"),
+            GraphTriple("Snort", "uses", "Intrusion Detection"),
+            GraphTriple("Cookies", "has_a", "Session Id"),
+        ])
+
+        results = graph.search("How does Snort detect network attacks?", top_k=2)
+
+        assert results
+        assert any("Snort" in r.content and "network attacks" in r.content for r in results)
+
+    def test_graph_search_returns_empty_for_unrelated_query(self):
+        graph = KnowledgeGraph([
+            GraphTriple("Snort", "can_detect", "network attacks"),
+        ])
+
+        assert graph.search("banana bread recipe") == []
+
+    def test_hybrid_retrieve_appends_graph_results(self, monkeypatch):
+        from core import rag
+
+        monkeypatch.setattr(rag, "session_retrieve", lambda *args, **kwargs: [("Uploaded doc context", 0.9)])
+        monkeypatch.setattr(rag, "graphrag_retrieve", lambda *args, **kwargs: [("Graph fact: Snort uses IDS.", 2.0)])
+
+        results = hybrid_retrieve(1, "snort ids")
+
+        assert results == [("Uploaded doc context", 0.9), ("Graph fact: Snort uses IDS.", 2.0)]
 
 
 class TestCosineSimilarity:
