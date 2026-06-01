@@ -1,5 +1,6 @@
 """Agent framework tests: orchestrator, context, config, adaptive params."""
 
+import json
 from types import SimpleNamespace
 
 from core.agent import AgentOrchestrator, AgentContext, AgentConfig
@@ -101,12 +102,24 @@ class TestAgentOrchestrator:
                 {"role": "system", "content": "System rules"},
                 {"role": "user", "content": "What is a firewall?"},
             ],
+            tool_events=[
+                {
+                    "name": "safety_check",
+                    "args": {"text": "What is a firewall?"},
+                    "status": "ok",
+                    "result": {"passed": True},
+                }
+            ],
             options={"temperature": 0.7},
             ip="127.0.0.1",
         )
         assert path is not None
         assert path.endswith(".json")
-        assert "System rules" in open(path, encoding="utf-8").read()
+        data = json.loads(open(path, encoding="utf-8").read())
+        assert data["system_prompt"] == "System rules"
+        assert "rag_search" in data["tools"]
+        assert data["tool_events"][0]["name"] == "safety_check"
+        assert any(m.get("role") == "tool" for m in data["react_messages"])
 
 
 class TestAgentConfig:

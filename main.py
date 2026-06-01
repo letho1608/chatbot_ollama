@@ -376,6 +376,7 @@ async def chat_stream(req: ChatRequest, request: Request, user: User = Depends(r
         conversation_id=conv_id,
         model=req.model,
         messages=ollama_messages,
+        tool_events=ctx.tool_events,
         options=ollama_options,
         ip=get_ip(request),
     )

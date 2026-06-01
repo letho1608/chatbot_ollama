@@ -26,6 +26,7 @@ class AgentContext:
     top_k: int = 40
     max_tokens: int = 2048
     history_messages: list = field(default_factory=list)
+    tool_events: list = field(default_factory=list)
     start_time: float = 0.0
     safety_result: Any = None
     validation_result: Any = None
@@ -38,6 +39,17 @@ class AgentOrchestrator:
     def process_input(self, ctx: AgentContext, db: Session, ip: str = "") -> Tuple[bool, Optional[str]]:
         if self.config.safety_enabled:
             result = validate_input(ctx.query)
+            ctx.tool_events.append({
+                "name": "safety_check",
+                "args": {"text": ctx.query},
+                "status": "blocked" if not result.passed else "ok",
+                "result": {
+                    "passed": result.passed,
+                    "reason": result.reason,
+                    "pii_found": result.pii_found,
+                    "sanitized": bool(result.sanitized),
+                },
+            })
             if not result.passed:
                 logger.log(ctx.user_id, "safety_block", {
                     "reason": result.reason, "query": ctx.query[:100]
@@ -55,6 +67,15 @@ class AgentOrchestrator:
 
         if self.config.memory_enabled:
             memories = format_memories_for_prompt(ctx.user_id, db)
+            ctx.tool_events.append({
+                "name": "memory_lookup",
+                "args": {"user_id": ctx.user_id},
+                "status": "ok",
+                "result": {
+                    "has_memories": bool(memories),
+                    "content_preview": memories[:500] if memories else "",
+                },
+            })
             if memories:
                 system_parts.append(memories)
 
@@ -62,10 +83,24 @@ class AgentOrchestrator:
             from core.rag import hybrid_retrieve, format_rag_context
             rag_results = hybrid_retrieve(ctx.user_id, ctx.query)
             rag_ctx = format_rag_context(rag_results)
+            ctx.tool_events.append({
+                "name": "rag_search",
+                "args": {"query": ctx.query},
+                "status": "ok",
+                "result": {
+                    "result_count": len(rag_results),
+                    "content_preview": rag_ctx[:500] if rag_ctx else "",
+                },
+            })
             if rag_ctx:
                 system_parts.append(rag_ctx)
-        except Exception:
-            pass
+        except Exception as e:
+            ctx.tool_events.append({
+                "name": "rag_search",
+                "args": {"query": ctx.query},
+                "status": "error",
+                "result": {"error": str(e)},
+            })
 
         messages = [{"role": "system", "content": build_system_prompt(system_parts)}]
 
