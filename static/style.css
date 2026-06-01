@@ -601,6 +601,69 @@ body {
   color: var(--text-secondary);
 }
 
+.trace-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 4px 0 16px;
+}
+
+.trace-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.trace-card.trace-thought,
+.trace-card.trace-action,
+.trace-card.trace-thought-action {
+  background: rgba(239, 83, 80, 0.07);
+  border-color: rgba(239, 83, 80, 0.34);
+}
+
+.trace-card.trace-observation {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(142, 142, 142, 0.28);
+}
+
+[data-theme="light"] .trace-card {
+  background: #f8fafc;
+}
+
+[data-theme="light"] .trace-card.trace-thought,
+[data-theme="light"] .trace-card.trace-action,
+[data-theme="light"] .trace-card.trace-thought-action {
+  background: #fff7f7;
+  border-color: #f1b7b7;
+}
+
+[data-theme="light"] .trace-card.trace-observation {
+  background: #f7f7f8;
+  border-color: #dedede;
+}
+
+.trace-line + .trace-line {
+  margin-top: 4px;
+}
+
+.trace-label {
+  display: inline;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.trace-label::after {
+  content: ": ";
+}
+
+.trace-body {
+  display: inline;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
 .message .msg-content table {
   border-collapse: collapse;
   margin: 12px 0;
