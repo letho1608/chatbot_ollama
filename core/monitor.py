@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from core.database import AuditLog
 from core.config import AgentConfig, estimate_tokens
+from core.prompts import TOOL_REGISTRY
 
 
 class AuditLogger:
@@ -53,6 +54,8 @@ class AuditLogger:
         conversation_id: str,
         model: str,
         messages: list[dict[str, str]],
+        tools: Optional[dict[str, Any]] = None,
+        tool_events: Optional[list[dict[str, Any]]] = None,
         options: Optional[dict[str, Any]] = None,
         ip: str = "",
     ) -> Optional[str]:
@@ -72,6 +75,8 @@ class AuditLogger:
             path = day_dir / filename
 
             system_messages = [m.get("content", "") for m in messages if m.get("role") == "system"]
+            tool_registry = tools or TOOL_REGISTRY
+            events = tool_events or []
             payload = {
                 "timestamp": now.isoformat(),
                 "event": "system_prompt_built",
@@ -81,6 +86,9 @@ class AuditLogger:
                 "model": model,
                 "ip_address": ip,
                 "options": options or {},
+                "tools": tool_registry,
+                "tool_events": events,
+                "react_messages": self._build_react_messages(messages, events),
                 "system_prompt": "\n\n".join(system_messages),
                 "messages": messages,
                 "message_count": len(messages),
@@ -91,6 +99,27 @@ class AuditLogger:
             return str(path)
         except Exception:
             return None
+
+    def _build_react_messages(self, messages: list[dict[str, str]], tool_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        react_messages: list[dict[str, Any]] = list(messages)
+        for event in tool_events:
+            name = event.get("name", "unknown_tool")
+            args = event.get("args", {})
+            status = event.get("status", "ok")
+            result = event.get("result", {})
+            react_messages.append({
+                "role": "assistant",
+                "content": f"Action: {name}({json.dumps(args, ensure_ascii=False)})",
+            })
+            react_messages.append({
+                "role": "tool",
+                "name": name,
+                "content": json.dumps({
+                    "status": status,
+                    "result": result,
+                }, ensure_ascii=False),
+            })
+        return react_messages
 
 
 logger = AuditLogger()
