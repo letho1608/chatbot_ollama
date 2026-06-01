@@ -1,3 +1,4 @@
+import os
 import re
 from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
@@ -179,6 +180,8 @@ MODEL_CATEGORIES: List[str] = [
 class AgentConfig:
     max_history_messages: int = 50
     max_context_tokens: int = 4096
+    default_max_tokens: int = field(default_factory=lambda: env_int("DEFAULT_MAX_TOKENS", 2048, 64, 32768))
+    max_response_tokens: int = field(default_factory=lambda: env_int("MAX_RESPONSE_TOKENS", 8192, 64, 32768))
     max_plan_steps: int = 5
     max_retries: int = 3
     memory_enabled: bool = True
@@ -206,3 +209,41 @@ class AgentConfig:
 
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 + 1
+
+
+def env_int(name: str, default: int, min_value: int, max_value: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(min_value, min(value, max_value))
+
+
+def clamp_max_tokens(value: int, config: AgentConfig | None = None) -> int:
+    cfg = config or AgentConfig()
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = cfg.default_max_tokens
+    return max(1, min(value, cfg.max_response_tokens))
+
+
+def estimate_model_cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    config: AgentConfig | None = None,
+) -> float:
+    cfg = config or AgentConfig()
+    costs = cfg.model_costs or {}
+    selected = costs.get("default", {"input": 0.0, "output": 0.0})
+    model_lower = (model or "").lower()
+    for prefix, pricing in costs.items():
+        if prefix != "default" and model_lower.startswith(prefix.lower()):
+            selected = pricing
+            break
+    return round(
+        (input_tokens / 1000.0) * float(selected.get("input", 0.0))
+        + (output_tokens / 1000.0) * float(selected.get("output", 0.0)),
+        8,
+    )
