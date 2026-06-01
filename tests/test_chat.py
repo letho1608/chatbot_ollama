@@ -79,7 +79,7 @@ class TestChatModelParam:
         with TestClient(app) as client:
             resp = client.post("/api/chat/stream", headers=user_headers, json={
                 "message": "What is IDS?",
-                "model": "minimax-m3:cloud",
+                "model": "qwen2:7b",
                 "temperature": 0.5,
                 "max_tokens": 1024,
             })

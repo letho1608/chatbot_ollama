@@ -9,7 +9,7 @@ import zipfile
 import io
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-REQUIRED_MODELS = ["minimax-m3:cloud", "nomic-embed-text:latest"]
+REQUIRED_MODELS = ["qwen2:7b", "nomic-embed-text:latest"]
 OLLAMA_URL = "http://127.0.0.1:11434"
 
 

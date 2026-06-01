@@ -19,7 +19,7 @@ class TestModelCatalog:
 
     def test_default_model_exists(self):
         names = [m.name for m in MODEL_CATALOG]
-        assert "minimax-m3:cloud" in names
+        assert "qwen2:7b" in names
 
     def test_all_categories_present(self):
         cats = set(m.category for m in MODEL_CATALOG)
