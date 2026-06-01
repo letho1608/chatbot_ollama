@@ -18,21 +18,25 @@ class ReActAgent:
     def get_system_prompt(self) -> str:
         tool_descriptions = "\n".join([f"- {t['name']}: {t['description']}" for t in self.tools])
         return f"""
-You are an intelligent assistant. You have access to the following tools:
+You are an intelligent assistant. You may only use the tools listed below.
 {tool_descriptions}
 
 Follow this ReAct format exactly:
-Thought: your reasoning about the next step.
+Thought: your reasoning for the next step.
 Action: tool_name(argument1, argument2, ...)
 Observation: result from the tool.
 ... (repeat Thought/Action/Observation as needed)
 Final Answer: your final response to the user.
+
+If the user question can be answered directly, do not call any tools and provide a clear Final Answer.
 """
 
     def run(self, user_input: str) -> str:
         logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
         self.history = []
         steps = 0
+
+        failure_code: Optional[str] = None
 
         while steps < self.max_steps:
             current_prompt = self._build_prompt(user_input)
@@ -41,6 +45,8 @@ Final Answer: your final response to the user.
             logger.log_event("LLM_RESPONSE", {"step": steps + 1, "response": response_text})
 
             if not response_text:
+                failure_code = "EMPTY_RESPONSE"
+                logger.log_event("AGENT_FAILURE", {"code": failure_code, "step": steps + 1})
                 break
 
             self.history.append(response_text)
@@ -48,6 +54,7 @@ Final Answer: your final response to the user.
             final_answer = self._extract_final_answer(response_text)
             if final_answer:
                 logger.log_event("AGENT_FINAL_ANSWER", {"answer": final_answer, "steps": steps + 1})
+                logger.log_event("AGENT_END", {"steps": steps, "success": True})
                 return final_answer
 
             action = self._parse_action(response_text)
@@ -56,14 +63,34 @@ Final Answer: your final response to the user.
                 observation = f"Observation: {tool_output}"
                 self.history.append(observation)
                 logger.log_event("AGENT_ACTION", {"tool": action["tool"], "args": action["args"], "output": tool_output})
+                if tool_output.startswith("Tool ") and "not found" in tool_output:
+                    failure_code = "TOOL_NOT_FOUND"
+                    logger.log_event("AGENT_FAILURE", {"code": failure_code, "tool": action["tool"], "step": steps + 1})
+                    break
+                if tool_output.startswith("Tool execution failed:"):
+                    failure_code = "TOOL_EXECUTION_ERROR"
+                    logger.log_event("AGENT_FAILURE", {"code": failure_code, "tool": action["tool"], "step": steps + 1, "error": tool_output})
+                    break
                 steps += 1
                 continue
 
-            # If no action is found, treat the response as the final answer.
-            logger.log_event("AGENT_FALLBACK_ANSWER", {"response": response_text})
-            return response_text
+            if "action:" in response_text.lower():
+                failure_code = "PARSE_ERROR"
+                logger.log_event("AGENT_FAILURE", {"code": failure_code, "response": response_text, "step": steps + 1})
+                break
 
-        logger.log_event("AGENT_END", {"steps": steps})
+            if self._looks_like_answer(response_text):
+                logger.log_event("AGENT_DIRECT_ANSWER", {"response": response_text})
+                logger.log_event("AGENT_END", {"steps": steps, "success": True})
+                return response_text
+
+            failure_code = "NO_ACTION"
+            logger.log_event("AGENT_FAILURE", {"code": failure_code, "response": response_text, "step": steps + 1})
+            break
+
+        if failure_code is None and steps >= self.max_steps:
+            failure_code = "MAX_STEPS_EXCEEDED"
+        logger.log_event("AGENT_END", {"steps": steps, "success": failure_code is None, "failure_code": failure_code})
         return "I could not produce a final answer within the allowed number of steps."
 
     def _build_prompt(self, user_input: str) -> str:
@@ -77,8 +104,11 @@ Final Answer: your final response to the user.
             return match.group(1).strip()
         return None
 
-    def _parse_action(self, text: str) -> Optional[Dict[str, str]]:
-        match = re.search(r"Action:\s*([a-zA-Z0-9_\-]+)\((.*)\)", text, re.IGNORECASE | re.DOTALL)
+    def _looks_like_answer(self, text: str) -> bool:
+        return bool(re.search(r"^(Answer|Final Answer|The answer is|I think)", text, re.IGNORECASE))
+
+    def _parse_action(self, text: str) -> Optional[Dict[str, Any]]:
+        match = re.search(r"Action:\s*([a-zA-Z0-9_\-]+)\s*\((.*)\)", text, re.IGNORECASE | re.DOTALL)
         if not match:
             return None
 
@@ -97,8 +127,8 @@ Final Answer: your final response to the user.
                 return [parsed[0]]
             return list(parsed)
         except Exception:
-            # Fallback: split by comma and strip whitespace
-            return [item.strip().strip('"\'') for item in args.split(",") if item.strip()]
+            # Fallback: keep the raw argument string when it cannot be safely parsed.
+            return [args]
 
     def _execute_tool(self, tool_name: str, args: List[Any]) -> str:
         for tool in self.tools:

@@ -3,6 +3,7 @@ import time
 import google.generativeai as genai
 from typing import Dict, Any, Optional, Generator
 from src.core.llm_provider import LLMProvider
+from src.telemetry.metrics import tracker
 
 class GeminiProvider(LLMProvider):
     def __init__(self, model_name: str = "gemini-1.5-flash", api_key: Optional[str] = None):
@@ -32,6 +33,7 @@ class GeminiProvider(LLMProvider):
             "total_tokens": response.usage_metadata.total_token_count
         }
 
+        tracker.track_request("google", self.model_name, usage, latency_ms)
         return {
             "content": content,
             "usage": usage,

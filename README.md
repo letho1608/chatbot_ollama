@@ -43,19 +43,38 @@ LOCAL_MODEL_PATH=./models/Phi-3-mini-4k-instruct-q4.gguf
 
 ## ▶️ Running the Project
 
-To run the agent locally, use the sample runner and the built-in tools:
+The project supports both a baseline chatbot and the ReAct agent.
 
+### Run the ReAct agent
 ```bash
-python src/agent/run_agent.py
+python src/agent/run_agent.py --mode agent
 ```
 
-You can also run the local provider smoke test:
+### Run the baseline chatbot
+```bash
+python src/agent/run_agent.py --mode baseline
+```
 
+Type `quit` or `exit` to stop the interactive session.
+
+### Local provider smoke test
 ```bash
 python tests/test_local.py
 ```
 
+### Analyze evaluation logs
+After running the agent, use the log analyzer to compute token usage, latency, loop count, and failure rates:
+
+```bash
+python src/telemetry/log_analyzer.py --log-dir logs
+```
+
 To build the agent, implement `src/agent/agent.py` and instantiate `ReActAgent` with an `LLMProvider` and a tools list.
+
+### Notes
+- If you choose `DEFAULT_PROVIDER=local`, install `llama-cpp-python` and download a GGUF model.
+- If the local provider is not available, switch `DEFAULT_PROVIDER` to `openai` or `google`.
+- The agent can use the built-in tools: `calculator`, `search`, `dataset_search`, and `echo`.
 
 ## 🧠 Lab Objectives
 

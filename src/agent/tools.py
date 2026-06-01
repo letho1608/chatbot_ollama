@@ -1,5 +1,8 @@
-from typing import Any
 import math
+import pathlib
+from typing import Any
+
+DATASET_PATH = pathlib.Path(__file__).resolve().parents[2] / "dataset.txt"
 
 
 def calculator(expression: str) -> str:
@@ -14,6 +17,7 @@ def calculator(expression: str) -> str:
             ]
         }
         allowed_names.update({'abs': abs, 'round': round, 'min': min, 'max': max})
+        expression = expression.strip()
         result = eval(expression, {'__builtins__': {}}, allowed_names)
         return str(result)
     except Exception as exc:
@@ -25,4 +29,22 @@ def echo(message: str) -> str:
 
 
 def search(query: str) -> str:
-    return f"Search result for '{query}': (simulated response)"
+    return f"Search result for '{query}': This is a simulated knowledge search."
+
+
+def dataset_search(query: str) -> str:
+    if not DATASET_PATH.exists():
+        return "Dataset search unavailable: dataset.txt not found."
+
+    results = []
+    query_lower = query.lower()
+    with open(DATASET_PATH, encoding="utf-8", errors="ignore") as data_file:
+        for line in data_file:
+            if query_lower in line.lower():
+                results.append(line.strip())
+                if len(results) >= 5:
+                    break
+
+    if not results:
+        return f"No dataset matches found for '{query}'."
+    return " | ".join(results)

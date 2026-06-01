@@ -2,6 +2,7 @@ import time
 from typing import Dict, Any, Optional, Generator
 from openai import OpenAI
 from src.core.llm_provider import LLMProvider
+from src.telemetry.metrics import tracker
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, model_name: str = "gpt-4o", api_key: Optional[str] = None):
@@ -32,6 +33,7 @@ class OpenAIProvider(LLMProvider):
             "total_tokens": response.usage.total_tokens
         }
 
+        tracker.track_request("openai", self.model_name, usage, latency_ms)
         return {
             "content": content,
             "usage": usage,
