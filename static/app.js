@@ -1,8 +1,11 @@
+const DEFAULT_MODEL = 'qwen2:7b';
+
 const state = {
   conversations: [],
   currentConvId: null,
-  currentModel: 'minimax-m3:cloud',
+  currentModel: DEFAULT_MODEL,
   streaming: false,
+  abortController: null,
   theme: 'dark',
   availableModels: [],
   modelPulling: false
@@ -121,11 +124,12 @@ async function loadModelCatalog() {
     modelState.categories = data.categories || [];
     modelState.installed = modelState.catalog.filter(m => m.installed).map(m => m.name);
     state.availableModels = modelState.installed;
-    if (!modelState.installed.includes(state.currentModel)) {
-      el.modelInput.value = state.currentModel;
-    } else {
-      el.modelInput.value = state.currentModel;
+    if (modelState.installed.includes(DEFAULT_MODEL)) {
+      state.currentModel = DEFAULT_MODEL;
+    } else if (!modelState.installed.includes(state.currentModel) && modelState.installed.length) {
+      state.currentModel = modelState.installed[0];
     }
+    el.modelInput.value = state.currentModel;
     updateModelBadge();
   } catch (e) {
     console.error('load catalog:', e);
@@ -449,10 +453,12 @@ async function sendMessage() {
   const assistantDiv = appendMessage('assistant', '<div class="typing-indicator"><span></span><span></span><span></span>');
 
   setStreaming(true);
+  state.abortController = new AbortController();
 
   try {
     const resp = await apiFetch('/api/chat/stream', {
       method: 'POST',
+      signal: state.abortController.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: text,
@@ -467,8 +473,12 @@ async function sendMessage() {
     });
 
     if (!resp.ok) {
-      const err = await resp.text();
-      updateLastMessage(`Error: ${err}`);
+      let err = await resp.text();
+      try {
+        const parsed = JSON.parse(err);
+        err = parsed.detail || parsed.error || err;
+      } catch (e) {}
+      updateLastMessage(`Lỗi: ${err}`);
       setStreaming(false);
       return;
     }
@@ -495,7 +505,7 @@ async function sendMessage() {
         try {
           const parsed = JSON.parse(data);
           if (parsed.error) {
-            updateLastMessage(`Error: ${parsed.error}`);
+            updateLastMessage(`Lỗi: ${parsed.error}`);
             setStreaming(false);
             return;
           }
@@ -515,8 +525,10 @@ async function sendMessage() {
     }
   } catch (e) {
     if (e.name !== 'AbortError') {
-      updateLastMessage(`Error: ${e.message}`);
+      updateLastMessage(`Lỗi: ${e.message}`);
     }
+  } finally {
+    state.abortController = null;
   }
 
   setStreaming(false);
@@ -533,6 +545,7 @@ function setStreaming(val) {
 }
 
 el.stopBtn.addEventListener('click', () => {
+  if (state.abortController) state.abortController.abort();
   setStreaming(false);
 });
 
