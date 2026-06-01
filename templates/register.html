@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Register - Tysor Security AI</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="auth-page">
+<div class="auth-container">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    </div>
+    <h1>Create account</h1>
+    <p class="auth-sub">Get started with Tysor Security AI</p>
+    <form id="registerForm" class="auth-form">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="Choose a username" required minlength="3" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="Enter your email" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="Min 6 characters" required minlength="6" autocomplete="new-password">
+      </div>
+      <div id="registerError" class="form-error" style="display:none"></div>
+      <button type="submit" class="btn-auth" id="registerBtn">Create account</button>
+    </form>
+    <p class="auth-link">Already have an account? <a href="/login">Sign in</a></p>
+  </div>
+</div>
+<script>
+const form = document.getElementById('registerForm');
+const errorEl = document.getElementById('registerError');
+const btn = document.getElementById('registerBtn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Creating account...';
+
+  try {
+    const resp = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: form.username.value.trim(),
+        email: form.email.value.trim(),
+        password: form.password.value
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      errorEl.textContent = data.detail || 'Registration failed';
+      errorEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Create account';
+      return;
+    }
+    localStorage.setItem('ollama_token', data.token);
+    window.location.href = data.role === 'admin' ? '/admin' : '/chat';
+  } catch (e) {
+    errorEl.textContent = 'Connection error';
+    errorEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Create account';
+  }
+});
+</script>
+</body>
+</html>

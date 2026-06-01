@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tysor — System Diagrams</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-muted: #8b949e; --accent: #10a37f;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .sub { color: var(--text-muted); font-size: 14px; margin-bottom: 32px; }
+  .diagram { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 32px; overflow-x: auto; }
+  .diagram h2 { font-size: 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .diagram h2 .num { background: var(--accent); color: #fff; width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .mermaid { display: flex; justify-content: center; padding: 12px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .nav-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .nav-bar a { font-size: 12px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 6px; }
+  .nav-bar a:hover { border-color: var(--accent); text-decoration: none; }
+  @media (max-width: 640px) { body { padding: 12px; } .diagram { padding: 12px; } }
+</style>
+</head>
+<body>
+
+<h1>Tysor — System Flow Diagrams</h1>
+<div class="sub">8 diagrams rendered via Mermaid.js. Return to <a href="/">Home</a></div>
+
+<div class="nav-bar">
+  <a href="#arch">Architecture</a>
+  <a href="#auth">Authentication</a>
+  <a href="#chat">Chat</a>
+  <a href="#rag">RAG</a>
+  <a href="#safety">Safety</a>
+  <a href="#admin">Admin</a>
+  <a href="#agent">Agent</a>
+  <a href="#db">Database</a>
+</div>
+
+<div class="diagram" id="arch">
+  <h2><span class="num">1</span> System Architecture</h2>
+  <div class="mermaid">
+flowchart TB
+    subgraph Browser["Web Browser"]
+        Dashboard["Dashboard Page"]
+        Chat["Chat Page"]
+        Login["Login / Register"]
+        Admin["Admin Panel"]
+    end
+    subgraph FastAPI["FastAPI Server"]
+        API["API Endpoints\n/api/auth/* /api/chat/*\n/api/models/* /api/rag/*\n/api/admin/*"]
+        Agent["Agent Framework\nSafety / Memory / Validator\nMonitor / RAG / Config\nOrchestrator"]
+        DB["Database\nUsers / Conversations\nMessages / Memories\nAuditLogs / Documents"]
+    end
+    subgraph Ollama["Ollama Server (127.0.0.1:11434)"]
+        ChatAPI["Chat\n/api/chat"]
+        Embed["Embeddings\n/api/embeddings"]
+        Pull["Pull\n/api/pull"]
+        Tags["Model List\n/api/tags"]
+    end
+    Browser -->|HTTP / SSE| FastAPI
+    FastAPI -->|HTTP / SSE| Ollama
+  </div>
+</div>
+
+<div class="diagram" id="auth">
+  <h2><span class="num">2</span> Authentication Flow</h2>
+  <div class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant B as Browser
+    participant F as FastAPI
+    participant D as Database
+
+    U->>B: POST /api/auth/login
+    B->>F: POST /api/auth/login
+    F->>D: SELECT * FROM users
+    D-->>F: user row
+    F->>F: bcrypt.verify() + Create JWT
+    F->>D: AuditLog: "login"
+    F-->>B: {token, role}
+    B-->>U: {token, role}
+    U->>B: Store token in localStorage
+    U->>B: GET /api/auth/me
+    B->>F: GET /api/auth/me
+    F->>F: Decode JWT + Verify sub
+    F-->>B: {user, role}
+    B-->>U: {user, role}
+    Note over U: role=admin → /admin<br/>role=user → /chat
+  </div>
+</div>
+
+<div class="diagram" id="chat">
+  <h2><span class="num">3</span> Chat Flow</h2>
+  <div class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant B as Browser
+    participant F as FastAPI+Agent
+    participant Q as Queue
+    participant O as Ollama
+
+    U->>B: Type message
+    B->>F: POST /api/chat/stream
+    F->>Q: RateLimiter.check()
+    F->>Q: RequestQueue.enqueue()
+    Q-->>F: Queue position SSE
+    F-->>B: SSE: position
+    F->>F: Agent.process_input()
+    Note over F: Safety Check<br/>PII Sanitize<br/>Security Topic<br/>Injection Detect
+    F->>F: Save Message + Auto-name
+    F->>F: Agent.build_messages()
+    Note over F: System Prompt<br/>Memories + RAG Context<br/>History + User Query
+    F->>O: POST /api/chat
+    O-->>F: stream response
+    F-->>B: SSE: {content}
+    B-->>U: Render Markdown
+    F->>F: Agent.process_response()
+    Note over F: Output Validate<br/>Safety Check<br/>Memory Extract<br/>Audit Log
+    F->>Q: Queue.release()
+  </div>
+</div>
+
+<div class="diagram" id="rag">
+  <h2><span class="num">4</span> RAG Document Flow</h2>
+  <div class="mermaid">
+flowchart LR
+    U(["User"]) -->|Drop file .txt/.pdf/.docx| B["Browser"]
+    B -->|POST /api/rag/upload| API["FastAPI"]
+    API -->|1. Check extension| ALLOW{"Allowed?"}
+    ALLOW -->|No| ERR["Return error"]
+    ALLOW -->|Yes| EXTRACT["2. Extract text\n.txt→utf-8 .docx→docx\n.pdf→pypdf"]
+    EXTRACT --> SEC["3. Security check\nSECURITY_KEYWORDS ≥1"]
+    SEC --> SECPASS{"Pass?"}
+    SECPASS -->|No| SECERR["Reject"]
+    SECPASS -->|Yes| CHUNK["4. Chunk text\n500 words, 80 overlap"]
+    CHUNK --> EMBED["5. Get embeddings"]
+    EMBED -->|POST /api/embeddings| O["Ollama"]
+    O -->|embedding vector| EMBED
+    EMBED --> STORE["6. Store in session_store\n(vector + text)"]
+    STORE --> DONE["{ok, id, filename}"]
+    DONE --> B
+    B --> U
+
+    U -->|Type message| B2["Browser"]
+    B2 -->|POST /api/chat/stream| API2["FastAPI"]
+    API2 --> RETRIEVE["session_retrieve()\nGet query emb\nCos sim vs docs\nTop-K chunks"]
+    RETRIEVE --> INJECT["Inject into prompt:\n'Relevant context:\n<chunk_text>'"]
+  </div>
+</div>
+
+<div class="diagram" id="safety">
+  <h2><span class="num">5</span> Safety &amp; Content Filtering Flow</h2>
+  <div class="mermaid">
+flowchart TD
+    Q["User Query"] --> VAL["validate_input()"]
+
+    subgraph Input["Input Validation Pipeline"]
+        C1["1. check_content_safety()\nviolence / self_harm\nharassment / hate_speech\nexplicit / drugs\nweapons / illegal_access\nphishing"]
+        C1 --> C1D{"Blocked?"}
+        C1D -->|Yes| BLOCK1["Return 'Blocked: category'"]
+        C1D -->|Pass| C2["2. detect_prompt_injection()\nignore previous instructions\nreveal system prompt\nDAN / bypass / etc."]
+        C2 --> C2D{"Injection?"}
+        C2D -->|Yes| BLOCK2["Return 'Prompt injection detected'"]
+        C2D -->|Pass| C3["3. check_security_relevance()\nSECURITY_KEYWORDS (200+)\nAllow greetings\nRequire ≥1 keyword"]
+        C3 --> C3D{"Off-topic?"}
+        C3D -->|Yes| BLOCK3["Return 'Tysor chỉ hỗ trợ Cyber Security'"]
+        C3D -->|Pass| C4["4. sanitize_pii()\nEmail→[EMAIL]\nPhone→[PHONE]\nCCCD→[CCCD]"]
+        C4 --> C4D{"PII found?"}
+        C4D -->|Yes| PASS["ctx.query = sanitized text"]
+        C4D -->|No| PASS
+    end
+
+    PASS --> OLLAMA["Ollama API (PII-free query)"]
+    OLLAMA --> OUTVAL["validate_output()"]
+    OUTVAL --> C5["check_content_safety() on response"]
+    C5 --> C5D{"Blocked?"}
+    C5D -->|Yes| SUPPRESS["Audit + suppress response"]
+    C5D -->|No| ACCEPT["Deliver response to user"]
+  </div>
+</div>
+
+<div class="diagram" id="admin">
+  <h2><span class="num">6</span> Admin Panel Flow</h2>
+  <div class="mermaid">
+sequenceDiagram
+    participant A as Admin User
+    participant B as Browser
+    participant F as FastAPI
+    participant D as Database
+
+    A->>B: GET /admin
+    B->>B: Check JWT token
+    B->>F: GET /api/auth/me
+    F-->>B: admin role
+    B->>B: nav('dashboard')
+
+    A->>B: Click 'Users' tab
+    B->>F: GET /api/admin/users
+    F->>D: SELECT * FROM users
+    D-->>F: users list
+    F-->>B: {users: [...]}
+    B-->>A: Render table
+
+    A->>B: Click user row
+    B->>F: GET /api/admin/users/{id}
+    F->>D: JOIN activity + conversations
+    D-->>F: user details
+    F-->>B: {user, activity, conversations}
+    B-->>A: Render modal
+
+    A->>B: Click 'Dashboard' tab
+    B->>F: GET /api/admin/stats
+    F-->>B: {users, convs, msgs, storage}
+    B-->>A: Render stats
+
+    A->>B: Click 'Activity' tab
+    B->>F: GET /api/admin/activity
+    F-->>B: {activities: [...]}
+    B-->>A: Render activity feed
+  </div>
+</div>
+
+<div class="diagram" id="agent">
+  <h2><span class="num">7</span> Agent Framework Architecture</h2>
+  <div class="mermaid">
+flowchart TB
+    subgraph Orchestrator["AgentOrchestrator"]
+        direction TB
+        subgraph Input["process_input()"]
+            S1["Safety Validation"] --> S2["PII Sanitization"]
+            S2 --> S3["Topic Relevance Check"]
+            S3 --> S4["Injection Detection"]
+            S4 --> S5["ctx.query = sanitized"]
+        end
+        subgraph Build["build_ollama_messages()"]
+            B1["System Prompt"] --> B2["+ Memories (from DB)"]
+            B2 --> B3["+ RAG Context (session)"]
+            B3 --> B4["+ History Messages"]
+            B4 --> B5["+ User Query (PII-free)"]
+        end
+        subgraph Config["get_adaptive_config()"]
+            CF1["Short ≤10 words → max_tokens=512, temp=0.7"]
+            CF2["Medium → max_tokens=2048, temp=0.7"]
+            CF3["Complex ≥50 words → max_tokens=4096, temp=0.8"]
+        end
+        subgraph Response["process_response()"]
+            R1["Output Validation"] --> R2["Safety Check"]
+            R2 --> R3["Memory Extraction"]
+            R3 --> R4["Audit Log"]
+        end
+    end
+    Input --> Build
+    Build --> Config
+    Config --> Response
+  </div>
+</div>
+
+<div class="diagram" id="db">
+  <h2><span class="num">8</span> Database Schema</h2>
+  <div class="mermaid">
+erDiagram
+    users {
+        int id PK
+        string username UQ
+        string email UQ
+        string password_hash
+        string role
+        bool is_active
+        datetime created_at
+    }
+    conversations {
+        int id PK
+        int user_id FK
+        string title
+        datetime created_at
+        datetime updated_at
+    }
+    messages {
+        int id PK
+        int conversation_id FK
+        string role
+        text content
+        datetime timestamp
+    }
+    memories {
+        int id PK
+        int user_id FK
+        string key
+        text value
+        string source
+        float confidence
+        datetime created_at
+        datetime updated_at
+    }
+    audit_logs {
+        int id PK
+        int user_id FK
+        string event
+        json detail
+        string ip_address
+        datetime created_at
+    }
+    rag_documents {
+        int id PK
+        int user_id FK
+        string filename
+        text content
+        int chunk_count
+        datetime created_at
+    }
+    rag_chunks {
+        int id PK
+        int document_id FK
+        int chunk_index
+        text content
+        json embedding
+    }
+    user_preferences {
+        int id PK
+        int user_id FK
+        string language
+        string theme
+        int max_tokens
+        float temperature
+        json extra
+    }
+
+    users ||--o{ conversations : "has"
+    users ||--o{ memories : "has"
+    users ||--o{ audit_logs : "has"
+    users ||--o{ rag_documents : "has"
+    users ||--o| user_preferences : "has"
+    conversations ||--o{ messages : "contains"
+    rag_documents ||--o{ rag_chunks : "contains"
+  </div>
+</div>
+
+<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:12px">
+  Tysor Security AI — <a href="/">Back to App</a>
+</div>
+
+<script>
+  mermaid.initialize({
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#10a37f',
+      primaryBorderColor: '#2ea043',
+      primaryTextColor: '#e6edf3',
+      lineColor: '#30363d',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      fontSize: '14px'
+    },
+    flowchart: { useMaxWidth: true, htmlLabels: true },
+    sequence: { useMaxWidth: true, showSequenceNumbers: false }
+  });
+</script>
+</body>
+</html>
