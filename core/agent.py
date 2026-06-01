@@ -60,8 +60,8 @@ class AgentOrchestrator:
                 system_parts.append(memories)
 
         try:
-            from core.rag import session_retrieve, format_rag_context
-            rag_results = session_retrieve(ctx.user_id, ctx.query)
+            from core.rag import hybrid_retrieve, format_rag_context
+            rag_results = hybrid_retrieve(ctx.user_id, ctx.query)
             rag_ctx = format_rag_context(rag_results)
             if rag_ctx:
                 system_parts.append(rag_ctx)
